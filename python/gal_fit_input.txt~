@@ -1,0 +1,13 @@
+###############################################################################
+# File to set inputs needed for fitting source LAE galaxy profiles
+#
+#
+#
+#
+#
+#
+###############################################################################
+fit_diffuse_galaxy=True
+diffuse_galaxy_type='sersic'
+fit_blobs=True
+blob_type='gaussian'

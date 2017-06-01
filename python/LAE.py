@@ -48,6 +48,7 @@ parser.add_argument("-P","--plot_results",help="Look at 2D plot of data/model/re
 parser.add_argument("-n","--no_save",help="Run code without saving fitted parameters", action='store_true')
 parser.add_argument("-s","--sim",help="Take inputs from simulated galaxies", action='store_true')
 parser.add_argument("-C","--clump_profile",help="Name of profile to use for clump fitting", default='sersic')
+parser.add_argument("-k","--save_key",help="name to append for custom savefile", default='')
 args_in = parser.parse_args()
 
 ########## Booleans for testing control #########################
@@ -56,6 +57,7 @@ look_for_peaks = args_in.peaks # Show 3D and 2D plots of image to help find peak
 check_sbb = args_in.brightness # Print array of surface brightnesses
 eval_guess = args_in.guess # Look at 3D and 2D plots of residuals (data-model) for guess
 plot_results = args_in.plot_results
+save_key = args_in.save_key
 ####################################################################
 
 def schechter_fct(L,L_star,Phi_star,alpha):
@@ -132,16 +134,19 @@ def galaxy_profile(params, xarr, yarr, z, inv_z, return_residuals=True, fdg=Fals
 pix_fits = pyfits.open(args_in.filename)
 if 'sim_gxy' in args_in.filename:
     pix_image = pix_fits[0].data
-    pix_image -= np.median(pix_image)
+#    pix_image -= np.median(pix_image)
     pix_err = pix_fits[1].data
     pix_err[pix_err<0.01*np.max(pix_image)] = 0.01*np.max(pix_image)
 #    pix_err = np.sqrt(abs(pix_image)) + 0.1*np.max(pix_image)
 #    bgcut = 0.1*np.max(pix_image-np.mean(pix_image))+np.mean(pix_image)
     bgcut = None
+    dim = pix_image.shape[0]
 else:
     pix_image = pix_fits[8].data
     pix_err = pix_fits[9].data
+#    bgcut = 0.1*np.max(pix_image-np.mean(pix_image))+np.mean(pix_image)
     bgcut = None
+    dim = None
 ### Find inverse variance
 pix_invar = 1/(pix_err)**2
 ### Remove infinities and nans
@@ -171,7 +176,7 @@ if args_in.sim:
 #    pix_image, pix_invar, bgcut, pd = src.crop_images(pix_image,pix_invar,bgcut=bgcut,dim=None,return_crop_info=True)
     bgcut, pd = 1, 1
 else:
-    pix_image, pix_invar, bgcut, pd = src.crop_images(pix_image,pix_invar,bgcut=bgcut,return_crop_info=True)
+    pix_image, pix_invar, bgcut, pd = src.crop_images(pix_image,pix_invar,bgcut=bgcut,dim=dim,return_crop_info=True)
 if pix_full.size < pix_image.size:
     pix_image = pix_full
     pix_invar = pix_invar_full
@@ -223,18 +228,22 @@ if look_for_peaks:
 #    plt.imshow(pix_tt,interpolation='none')
 #    plt.show()
 #    plt.close()
-#    plt.imshow(pix_image,interpolation='none')
-#    sf.plot_3D(pix_image)
-#    plt.show()    
-#    plt.close()
+    print np.median(pix_invar)
+    print np.max(pix_invar)
+    plt.imshow(pix_image,interpolation='none', vmax = np.max(pix_image)*0.5)
+    guess_im = 1.0*pix_image
+    guess_im[guess_im<0.1*np.max(guess_im)] = 0
+    sf.plot_3D(guess_im)
+    plt.show()    
+    plt.close()
 #    plt.figure()
 #    plt.imshow(np.hstack((pix_image,pix_conv,pix_tt)),interpolation='none')
 #    plt.show()
     tt_down = sf.downsample(pix_tt,4)
     pix_down_tt = signal.convolve2d(pix_down,tt,mode='same')
     pix_down_tt *= np.sum(pix_down)/np.sum(pix_down_tt)
-    plt.imshow(pix_down_tt,interpolation='none')
-    plt.show()
+#    plt.imshow(pix_down_tt,interpolation='none')
+#    plt.show()
 #    sf.plot_3D(pix_tt)
 #    plt.show()
     
@@ -249,72 +258,224 @@ if not args_in.param_file and not args_in.sim:
     
     qgen = 0.8
     PAgen = np.pi/4
+    xshft = 0
+    yshft = 0
     ## 01:
     if img_num == '01':
-        xb = np.array(([22, 26, 30, 14, 17.5, 10, 14, 15]))
-        yb = np.array(([14.5, 15, 15, 15, 15, 40, 39, 43]))
+#        xb = np.array(([22, 26, 30, 14, 17.5, 10, 14, 15]))
+#        yb = np.array(([14.5, 15, 15, 15, 15, 40, 39, 43]))
+#        sbb = np.array(([0.025, 0.0225, 0.011, 0.0034, 0.0034, 0.0022, 0.0016, 0.0016]))*1.5
+#        sigb = np.array(([2.6, 1.5, 0.9, 2.5, 2.5, 3.5, 3.5, 2.5]))*2
+#        nsb = np.array(([2.2, 1.6, 1.6, 1.5, 1.5, 1.5, 1.5, 1.5]))
+#        qgal = np.array(([0.7, 0.8, 0.8, 0.7, 0.5, 0.6, 0.8, 0.8]))
+#        PAgal = np.array(([130, 130, 180, 135, 45, 90, 90, 0]))*np.pi/180
+        if save_key == 'div10':
+            xshft = 1
+            yshft = 1
+            dl = 4
+        elif save_key == 'tim10':
+            xshft = 1
+            yshft = 3
+            dl = (5, 7)
+        xb = np.array(([22, 26, 30, 14, 17.5, 9, 14, 15]))+xshft
+        yb = np.array(([14.5, 15, 15, 15, 14, 39.5, 39, 43]))+yshft
         sbb = np.array(([0.025, 0.0225, 0.011, 0.0034, 0.0034, 0.0022, 0.0016, 0.0016]))*1.5
-        sigb = np.array(([2.6, 1.5, 0.9, 2.5, 2.5, 3.5, 3.5, 2.5]))*2
+        sigb = np.array(([2.6, 1.5, 0.9, 0.8, 1, 1.5, 3.5, 1.5]))
         nsb = np.array(([2.2, 1.6, 1.6, 1.5, 1.5, 1.5, 1.5, 1.5]))
         qgal = np.array(([0.7, 0.8, 0.8, 0.7, 0.5, 0.6, 0.8, 0.8]))
         PAgal = np.array(([130, 130, 180, 135, 45, 90, 90, 0]))*np.pi/180
-    #    qgal = np.ones((len(xb)))*qgen
-    #    PAgal = np.ones((len(xb)))*PAgen
+        if save_key == 'div10':# or save_key == 'tim10':
+            xb = np.delete(xb, dl)
+            yb = np.delete(yb, dl)
+            sbb = np.delete(sbb, dl)
+            sigb = np.delete(sigb, dl)
+            nsb = np.delete(nsb, dl)
+            qgal = np.delete(qgal, dl)
+            PAgal = np.delete(PAgal, dl)
+        elif save_key == 'tim10':
+            xb[4] += 0.5
+            yb[4] += 1
+            yb[0] += 1
+            yb[6] -= 1.5
+            xb = np.delete(xb, dl)
+            yb = np.delete(yb, dl)
+            sbb = np.delete(sbb, dl)
+            sigb = np.delete(sigb, dl)
+            nsb = np.delete(nsb, dl)
+            qgal = np.delete(qgal, dl)
+            PAgal = np.delete(PAgal, dl)
         
     ## 03:
     elif img_num == '03':
-        xb = np.array(([27, 26, 35, 44, 52, 52, 57, 42]))
-        yb = np.array(([22, 12, 24, 28.5, 26, 29, 24, 54]))
+#        xb = np.array(([27, 26, 35, 44, 52, 52, 57, 42]))
+#        yb = np.array(([22, 12, 24, 28.5, 26, 29, 24, 54]))
+#        sbb = np.array(([0.004, 0.003, 0.0011, 0.003, 0.0025, 0.001, 0.00092, 0.0025]))
+#        sigb = np.array(([4, 8, 5, 3, 4, 2, 3, 8]))*2
+#        nsb = np.array(([1.4, 1, 1.5, 1.5, 1.5, 1.5, 1.5, 1]))
+#        qgal = np.array(([0.33, 0.7, 0.7, 0.7, 0.8, 0.9, 0.2, 0.8]))
+#        PAgal = np.array(([150, 120, 90, 140, 90, 90, 60, 70]))*np.pi/180
+        xb = np.array(([27, 26, 35, 44, 52, 52, 59, 42]))+xshft
+        yb = np.array(([22, 12, 24, 28.5, 26, 30, 21, 54]))+yshft
         sbb = np.array(([0.004, 0.003, 0.0011, 0.003, 0.0025, 0.001, 0.00092, 0.0025]))
-        sigb = np.array(([4, 8, 5, 3, 4, 2, 3, 8]))*2
+        sigb = np.array(([4, 8, 2, 2, 4, 1, 2, 8]))
         nsb = np.array(([1.4, 1, 1.5, 1.5, 1.5, 1.5, 1.5, 1]))
         qgal = np.array(([0.33, 0.7, 0.7, 0.7, 0.8, 0.9, 0.2, 0.8]))
-        PAgal = np.array(([150, 120, 90, 140, 90, 90, 60, 70]))*np.pi/180
+        PAgal = np.array(([150, 120, 90, 140, 90, 90, 60, 70]))*np.pi/180 + np.pi/2
+        if save_key == 'tim10':
+            dl = 5
+            xb = np.delete(xb, dl)
+            yb = np.delete(yb, dl)
+            sbb = np.delete(sbb, dl)
+            sigb = np.delete(sigb, dl)
+            nsb = np.delete(nsb, dl)
+            qgal = np.delete(qgal, dl)
+            PAgal = np.delete(PAgal, dl)
         
     ## 04:
     elif img_num == '04':        
-        xb = np.array(([29.5, 26, 27, 23, 14]))
-        yb = np.array(([31, 46, 33, 30, 26]))
-        sbb = np.array(([0.02, 0.006, 0.005, 0.001, 0.006]))*2.3
-        sigb = np.array(([6, 6, 4, 3.5, 10]))*2
-        nsb = np.array(([1.2, 1.2, 1.6, 1.5, 1]))
-        qgal = np.array(([0.3, 0.8, 0.3, 0.8, 0.9]))
-        PAgal = np.array(([80, 30, 40, 45, 0]))*np.pi/180+np.pi/2
+#        xb = np.array(([29.5, 26, 27, 23, 14]))
+#        yb = np.array(([31, 46, 33, 30, 26]))
+#        sbb = np.array(([0.02, 0.006, 0.005, 0.001, 0.006]))*2.3
+#        sigb = np.array(([6, 6, 4, 3.5, 10]))*2
+#        nsb = np.array(([1.2, 1.2, 1.6, 1.5, 1]))
+#        qgal = np.array(([0.3, 0.8, 0.3, 0.8, 0.9]))
+#        PAgal = np.array(([80, 30, 40, 45, 0]))*np.pi/180+np.pi/2
+        if save_key == 'div10':
+            xshft = 0
+            yshft = 11
+        elif save_key == 'tim10':
+            xshft = 0
+            yshft = 7.5
+        xb = np.array(([29.5, 26, 24.5, 32, 14]))+xshft
+        yb = np.array(([31, 46, 31.5, 23, 26]))+yshft
+        sbb = np.array(([0.02, 0.01, 0.001, 0.002, 0.001]))*2.3
+        sigb = np.array(([6, 7, 2, 2, 2]))
+        nsb = np.array(([1.2, 1.2, 1.6, 1.5, 1.5]))
+        qgal = np.array(([0.3, 0.8, 0.8, 0.8, 0.8]))
+        PAgal = np.array(([30, -30, -45, 55, 0]))*np.pi/180+np.pi/2
+        if save_key == 'div10':
+            xb = np.append(xb, [25, 37])
+            xb[3] -= 2
+            xb[2] -= 0.5
+            yb = np.append(yb, [51, 11])
+            yb[3] += 4
+            yb[2] += 3
+            sbb = np.append(sbb, [sbb[2], sbb[-1]])
+            sigb = np.append(sigb, [2, 1])
+            nsb = np.append(nsb, np.ones(2))
+            qgal = np.append(qgal, [0.8, 0.9])
+            PAgal = np.append(PAgal, [90, 90])*np.pi/180
+        elif save_key == 'tim10':
+            dl = (3, 4)
+            xb = np.delete(xb, dl)
+            yb = np.delete(yb, dl)
+            sbb = np.delete(sbb, dl)
+            sigb = np.delete(sigb, dl)
+            nsb = np.delete(nsb, dl)
+            qgal = np.delete(qgal, dl)
+            PAgal = np.delete(PAgal, dl)
     
     ## 05:
     elif img_num == '05':
-        xb = np.array(([18, 15, 5, 29]))
-        yb = np.array(([13, 12, 4, 16]))
+        if save_key == 'div10':
+            xshft = 2
+            yshft = 2
+        elif save_key == 'tim10':
+            xshft = 0
+            yshft = 1
+        xb = np.array(([18, 15, 5, 29]))+xshft
+        yb = np.array(([13, 12, 4, 16]))+yshft
         sbb = np.array(([0.0052, 0.0037, 0.0006, 0.0004]))*1.3
         sigb = np.array(([4.5, 2.5, 5.5, 2.5]))*2
         nsb = np.array(([1.7, 1.5, 1.5, 1.5]))
         qgal = np.array(([0.8, 0.9, 0.8, 0.8]))
         PAgal = np.array(([45, 45, 45, 45]))*np.pi/180
+        if save_key == 'div10':
+            xb = np.append(xb, [9, 14])
+            xb[0] -= 1
+            xb[3] += 2
+            yb = np.append(yb, [16, 10])
+            yb[0] += 2
+            yb[3] += 0
+            sbb = np.append(sbb, [sbb[2], sbb[-1]])
+            sigb = np.append(sigb, [3, 1])
+            nsb = np.append(nsb, np.ones(2))
+            qgal = np.append(qgal, [0.8, 0.8])
+            PAgal = np.append(PAgal, [135, 90])*np.pi/180
+        elif save_key == 'tim10':
+            dl = (2, 3)
+            xb = np.delete(xb, dl)
+            yb = np.delete(yb, dl)
+            sbb = np.delete(sbb, dl)
+            sigb = np.delete(sigb, dl)
+            nsb = np.delete(nsb, dl)
+            qgal = np.delete(qgal, dl)
+            PAgal = np.delete(PAgal, dl)
     
     ## 06:
     elif img_num == '06':
-        xb = np.array(([15, 15, 19.5, 24]))
-        yb = np.array(([24, 20, 21, 18]))
+        if save_key == 'div10':
+            xshft = 1.5
+            yshft = -1
+        elif save_key == 'tim10':
+            xshft = 2
+            yshft = 0
+        xb = np.array(([15, 14, 19.5, 24]))+xshft
+        yb = np.array(([24, 20, 21, 18]))+yshft
         sbb = np.array(([0.0071, 0.0047, 0.016, 0.0072]))*1.2
-        sigb = np.array(([1, 3, 5, 6]))*2
+        sigb = np.array(([0.7, 2, 5, 6]))
         nsb = np.array(([1.5, 1.5, 1.5, 1.5]))*1.1
-        qgal = np.array(([0.8, 0.7, 0.6, 0.9]))
+        qgal = np.array(([0.8, 0.7, 0.5, 0.9]))
         PAgal = np.array(([10, 110, 130, 45]))*np.pi/180
+        if save_key == 'div10':
+            xb[0] = 21
+            yb[0] = 15
+            sbb[0] = sbb[1]
+        elif save_key == 'tim10':
+            xb[1] = 17
+            yb[1] = 21
+            dl = 0
+            xb = np.delete(xb, dl)
+            yb = np.delete(yb, dl)
+            sbb = np.delete(sbb, dl)
+            sigb = np.delete(sigb, dl)
+            nsb = np.delete(nsb, dl)
+            qgal = np.delete(qgal, dl)
+            PAgal = np.delete(PAgal, dl)
     
     ## 07:
     elif img_num == '07':
-        xb = np.array(([26, 20]))
-        yb = np.array(([31, 38]))
-        sbb = np.array(([0.0064, 0.0114]))*4.5
-        sigb = np.array(([12, 8]))
-        nsb = np.array(([1.13, 1.16]))
-        qgal = np.array(([0.7, 0.8]))
-        PAgal = np.array(([135, 170]))*np.pi/180
+        if save_key == 'tim10':
+            xshft = 0
+            yshft = 3
+        xb = np.array(([26, 20, 38]))+xshft
+        yb = np.array(([31, 36, 14]))+yshft
+        sbb = np.array(([0.0064, 0.0114, 0.001]))*4.5
+        sigb = np.array(([12, 8, 6]))
+        nsb = np.array(([1.13, 1.16, 1.0]))
+        qgal = np.array(([0.7, 0.8, 0.9]))
+        PAgal = np.array(([135, 170, 60]))*np.pi/180
+        if save_key == 'tim10':
+            xb[1] = 22
+            dl = 2
+            xb = np.delete(xb, dl)
+            yb = np.delete(yb, dl)
+            sbb = np.delete(sbb, dl)
+            sigb = np.delete(sigb, dl)
+            nsb = np.delete(nsb, dl)
+            qgal = np.delete(qgal, dl)
+            PAgal = np.delete(PAgal, dl)
     
     ## 08:
     elif img_num == '08':
-        xb = np.array(([18,]))
-        yb = np.array(([18,]))
+        if save_key == 'div10':
+            xshft = 21
+            yshft = 5
+        elif save_key == 'tim10':
+            xshft = 4
+            yshft = 5
+        xb = np.array(([18,]))+xshft
+        yb = np.array(([18,]))+yshft
         sbb = np.array(([0.0112]))*5.5
         sigb = np.array(([4,]))*2
         nsb = np.array(([1.0,]))*3
@@ -323,20 +484,48 @@ if not args_in.param_file and not args_in.sim:
     
     ## 09:
     elif img_num == '09':
-        xb = np.array(([15,]))
-        yb = np.array(([18,]))
+        if save_key == 'tim10':
+            xshft = 3.5
+            yshft = 1.5
+        xb = np.array(([15,]))+xshft
+        yb = np.array(([18,]))+yshft
         sbb = np.array(([0.06,]))
-        sigb = np.array(([4,]))*2
+        sigb = np.array(([4,]))
         nsb = np.array(([1.2,]))
-        qgal = np.array(([0.5,]))
+        qgal = np.array(([0.7,]))
         PAgal = np.array(([145]))*np.pi/180
+        if save_key == 'div10':
+            xb = np.append(xb, [13])
+            yb = np.append(yb, [22])
+            sbb = np.append(sbb, [0.02])
+            sigb = np.append(sigb, [1])
+            nsb = np.append(nsb, [1])
+            qgal = np.append(qgal, [0.8])
+            PAgal = np.append(PAgal, [90])*np.pi/180
+        elif save_key == 'tim10':
+            xb = np.append(xb, [40])
+            yb = np.append(yb, [22])
+            sbb = np.append(sbb, [0.008])
+            sigb = np.append(sigb, [2])
+            nsb = np.append(nsb, [1])
+            qgal = np.append(qgal, [0.8])
+            PAgal = np.append(PAgal, [20])*np.pi/180
     
     ## 10:    
     elif img_num == '10':
-        xb = np.array(([24.5, 21, 22, 28, 28.5, 32.5, 35, 43, 43]))-8    
-        yb = np.array(([28.5, 28, 23, 27, 30.5, 31.5, 36, 34, 37.5]))-8
+        if save_key == 'div10':
+            xshft = -0.5
+            yshft = -1
+            dl = (1, 7)
+        elif save_key == 'tim10':
+            xshft = 1.5
+            yshft = 1.5
+        xshft -= 8
+        yshft -= 8
+        xb = np.array(([24.5, 21, 22, 28, 28.5, 32.5, 35, 43, 43]))+xshft
+        yb = np.array(([28.5, 28, 23, 27, 30.5, 31.5, 36, 34, 37.5]))+yshft
         sbb = np.array(([0.037,0.015,0.035,0.005,0.007,0.006,0.008,0.006,0.021]))
-        sigb = np.array(([3, 1.75, 4, 1.25, 2.25, 3, 4.5, 2.5, 4]))*1.7
+        sigb = np.array(([3, 0.4, 4, 0.4, 1.25, 1.5, 4.5, 2.5, 4]))
         nsb = np.array(([2.5, 1.5, 1.2, 2, 2.5, 2, 1, 1.5, 1]))
         qgal = np.ones((len(xb)))*qgen
         PAgal = np.ones((len(xb)))*PAgen
@@ -347,87 +536,373 @@ if not args_in.param_file and not args_in.sim:
 #        nsb = np.array(([2.5, 1.5, 1.2, 2, 2.5, 1, 1.5, 1]))
 #        qgal = np.ones((len(xb)))*qgen
 #        PAgal = np.ones((len(xb)))*PAgen
+        if save_key == 'div10':# or save_key == 'tim10':
+            xb = np.delete(xb, dl)
+            yb = np.delete(yb, dl)
+            sbb = np.delete(sbb, dl)
+            sigb = np.delete(sigb, dl)
+            nsb = np.delete(nsb, dl)
+            qgal = np.delete(qgal, dl)
+            PAgal = np.delete(PAgal, dl)
+        elif save_key == 'tim10':
+            xb[5] = 25
+            yb[5] = 26
+            xb[3] = 22
+            yb[3] = 21
+            dl = (4, 7)
+            xb = np.delete(xb, dl)
+            yb = np.delete(yb, dl)
+            sbb = np.delete(sbb, dl)
+            sigb = np.delete(sigb, dl)
+            nsb = np.delete(nsb, dl)
+            qgal = np.delete(qgal, dl)
+            PAgal = np.delete(PAgal, dl)
     
     ## 11:
     elif img_num == '11':
-        xb = np.array(([14, 23, 27]))
-        yb = np.array(([15, 23, 24]))
+        if save_key == 'div10':
+            xshft = 2.5
+            yshft = 3
+        elif save_key == 'tim10':
+            xshft = 0
+            yshft = 0
+        xb = np.array(([14, 23, 27]))+xshft
+        yb = np.array(([15, 23, 24]))+yshft
         sbb = np.array(([0.015, 0.042, 0.006]))
         sigb = np.array(([3.5, 5, 6.3]))*1.0
         nsb = np.array(([1.0, 1.0, 1.3]))
         qgal = np.array(([0.7, .5, 0.7]))
         PAgal = np.array(([45, 45, 160]))*np.pi/180
+#        if save_key == 'div10':
+#            xb = np.append(xb, [31])
+#            yb = np.append(yb, [19])
+#            sbb = np.append(sbb, [0.003])
+#            sigb = np.append(sigb, [0.5])
+#            nsb = np.append(nsb, [1])
+#            qgal = np.append(qgal, [0.8])
+#            PAgal = np.append(PAgal, [0])*np.pi/180
+        if save_key == 'tim10':
+            xb[1] = 24
+            xb[0] = 20
+            yb[0] = 19
+            dl = 2
+            xb = np.delete(xb, dl)
+            yb = np.delete(yb, dl)
+            sbb = np.delete(sbb, dl)
+            sigb = np.delete(sigb, dl)
+            nsb = np.delete(nsb, dl)
+            qgal = np.delete(qgal, dl)
+            PAgal = np.delete(PAgal, dl)
     
     ## 12:
     elif img_num == '12':
-        xb = np.array(([15.5, 15.5, 17, 19]))
-        yb = np.array(([18.5, 27, 34.5, 41]))
+        if save_key == 'div10':
+            xshft = 4
+            yshft = 6.5
+        elif save_key == 'tim10':
+            xshft = 1
+            yshft = 2.5
+        xb = np.array(([15.5, 15.5, 17, 19]))+xshft
+        yb = np.array(([18.5, 27, 34.5, 41]))+yshft
         sbb = np.array(([0.025, 0.016, 0.06, 0.024]))
         sigb = np.array(([7, 2.5, 3.5, 5]))
         nsb = np.array(([1.0, 0.6, 1.0, 1.0]))
         qgal = np.array(([0.7, 0.70101, 0.70013, 0.7]))
         PAgal = np.array(([160, 70, 100, 90]))*np.pi/180
+        if save_key == 'tim10':
+            xb[0] = 17.5
+            xb[1] = 18
+            yb[1] = 29
+            xb[2] = 18.5
+            yb[2] = 37.5
+            dl = 3
+            xb = np.delete(xb, dl)
+            yb = np.delete(yb, dl)
+            sbb = np.delete(sbb, dl)
+            sigb = np.delete(sigb, dl)
+            nsb = np.delete(nsb, dl)
+            qgal = np.delete(qgal, dl)
+            PAgal = np.delete(PAgal, dl)
     
     ## 13:
     elif img_num == '13':
-        xb = np.array(([26, 25, 24.5, 23, 10.5, 13, 19]))
-        yb = np.array(([22, 27, 33.5, 37, 47.5, 28, 46]))
-        sbb = np.array(([0.035, 0.029, 0.024, 0.022, 0.01, 0.009, 0.004]))
-        sigb = np.array(([4.5, 3.5, 3.5, 3.5, 2.5, 7, 1.5]))*2
-        nsb = np.array(([1.0, 1.0, 1.0, 1.0, 0.8, 0.6, 1.0]))
-        qgal = np.array(([0.5, 0.5, 0.6, 0.5, 0.8, 0.6, 0.8]))*0.8
-        PAgal = np.array(([175, 175, 165, 175, 175, 10, 10]))*np.pi/180
+        if save_key == 'div10':
+            xshft = 2
+            yshft = -2
+        elif save_key == 'tim10':
+            xshft = 2.5
+            yshft = 2
+#        xb = np.array(([26, 25, 24.5, 23, 10.5, 13, 19]))
+#        yb = np.array(([22, 27, 33.5, 37, 47.5, 28, 46]))
+#        sbb = np.array(([0.035, 0.029, 0.024, 0.022, 0.01, 0.009, 0.004]))
+#        sigb = np.array(([4.5, 3.5, 3.5, 3.5, 2.5, 7, 1.5]))
+#        nsb = np.array(([1.0, 1.0, 1.0, 1.0, 0.8, 0.6, 1.0]))
+#        qgal = np.array(([0.5, 0.5, 0.6, 0.5, 0.8, 0.6, 0.8]))*0.8
+#        PAgal = np.array(([175, 175, 165, 175, 175, 10, 10]))*np.pi/180        
+        xb = np.array(([26, 25, 24.5, 23, 10.5, 12.5, 19, 18.5]))+xshft
+        yb = np.array(([22, 27, 33.5, 37, 47.5, 27, 46, 29.5]))+yshft
+        sbb = np.array(([0.035, 0.029, 0.024, 0.022, 0.01, 0.009, 0.004, 0.004]))
+        sigb = np.array(([4.5, 3.5, 3.5, 3.5, 2.5, 6, 0.5, 3]))
+        nsb = np.array(([1.0, 1.0, 1.0, 1.0, 0.8, 0.6, 1.0, 1.0]))
+        qgal = np.array(([0.5, 0.5, 0.6, 0.5, 0.8, 0.6, 0.8, 0.9]))*0.8
+        PAgal = np.array(([175, 175, 165, 175, 175, 10, 10, 20]))*np.pi/180
+        if save_key == 'div10':
+            yb[0] -= 3
+            xb[1] += 1
+            yb[1] += 2
+            xb[-1] += 1.5
+            yb[-1] += 4.5
+            xb[5] -= 1
+            yb[5] -= 1
+            xb[4] -= 2
+        elif save_key == 'tim10':
+            xb[4] = 12
+            yb[4] = 50
+            xb[0] = 28
+            yb[0] = 31
+            sigb[0] = 10
+            xb[5] = 16
+            yb[5] = 32
+            dl = (1, 2, 3, 6, 7)
+            xb = np.delete(xb, dl)
+            yb = np.delete(yb, dl)
+            sbb = np.delete(sbb, dl)
+            sigb = np.delete(sigb, dl)
+            nsb = np.delete(nsb, dl)
+            qgal = np.delete(qgal, dl)
+            PAgal = np.delete(PAgal, dl)
     
     ## 14:
     elif img_num == '14':
-        xb = np.array(([15, 19, 20.5]))
-        yb = np.array(([16, 16, 25.5]))
+        if save_key == 'div10':
+            xshft = -1
+            yshft = -1
+            dl = 1
+        elif save_key == 'tim10':
+            xshft = 4
+            yshft = 2
+            dl = 1
+        xb = np.array(([15, 19, 20.5]))+xshft
+        yb = np.array(([16, 16, 25.5]))+yshft
         sbb = np.array(([0.21, 0.12, 0.024]))
         sigb = np.array(([3.3, 2.2, 5.0]))
         nsb = np.array(([0.6, 0.55, 1.0]))
         qgal = np.array(([0.7, 0.7, 0.8]))
         PAgal = np.array(([75, 75, 75]))*np.pi/180
+        if save_key == 'div10':
+            xb[2] += 1
+            xb = np.delete(xb, dl)
+            yb = np.delete(yb, dl)
+            sbb = np.delete(sbb, dl)
+            sigb = np.delete(sigb, dl)
+            nsb = np.delete(nsb, dl)
+            qgal = np.delete(qgal, dl)
+            PAgal = np.delete(PAgal, dl)
+        elif save_key == 'tim10':
+            xb = np.delete(xb, dl)
+            yb = np.delete(yb, dl)
+            sbb = np.delete(sbb, dl)
+            sigb = np.delete(sigb, dl)
+            nsb = np.delete(nsb, dl)
+            qgal = np.delete(qgal, dl)
+            PAgal = np.delete(PAgal, dl)
+            
     
     ## 15:
     elif img_num == '15':
-        xb = np.array(([11, 18.5, 24, 36, 47, 48.5, 57]))
-        yb = np.array(([29, 45, 46, 29, 27, 24, 18]))
+#        xb = np.array(([11, 18.5, 24, 36, 47, 48.5, 57]))
+#        yb = np.array(([29, 45, 46, 29, 27, 24, 18]))
+#        sbb = np.array(([0.003, 0.005, 0.004, 0.003, 0.018, 0.009, 0.018]))*1.3
+#        sigb = np.array(([2.5, 4.5, 6, 3.5, 6.5, 4, 7]))*1.4
+#        nsb = np.array(([1.0, 1.0, 1.0, 1.0, 1.2, 1.5, 1.0]))*1.1
+#        qgal = np.array(([0.8, 0.7, 0.4, 0.8, 0.9, 0.3, 0.5]))
+#        PAgal = np.array(([90, 135, 20, 10, 135, 60, 90]))*np.pi/180
+        if save_key == 'div10':
+            xshft = 18
+            yshft = 2
+        elif save_key == 'tim10':
+            xshft = -5.5
+            yshft = 0
+        xb = np.array(([11, 18.5, 24, 36, 47, 48.5, 57]))+xshft
+        yb = np.array(([29, 45, 46, 29, 27, 24, 18]))+yshft
         sbb = np.array(([0.003, 0.005, 0.004, 0.003, 0.018, 0.009, 0.018]))*1.3
-        sigb = np.array(([2.5, 4.5, 6, 3.5, 6.5, 4, 7]))*1.4
+        sigb = np.array(([2.5, 4.5, 6, 1.0, 6.5, 4, 7]))
         nsb = np.array(([1.0, 1.0, 1.0, 1.0, 1.2, 1.5, 1.0]))*1.1
         qgal = np.array(([0.8, 0.7, 0.4, 0.8, 0.9, 0.3, 0.5]))
         PAgal = np.array(([90, 135, 20, 10, 135, 60, 90]))*np.pi/180
+        if save_key == 'div10':
+            xb[3] = 63
+            yb[3] = 33
+            xb[6] += 1
+            xb = np.append(xb, [69])
+            yb = np.append(yb, [22])
+            sbb = np.append(sbb, [0.02])
+            sigb = np.append(sigb, [1.5])
+            nsb = np.append(nsb, [1])
+            qgal = np.append(qgal, [0.8])
+            PAgal = np.append(PAgal, [90])*np.pi/180
+        elif save_key == 'tim10':
+            dl = 0
+            xb[1] = 18
+            yb[1] = 43
+            xb[2] = 27
+            yb[2] = 22
+            xb[4] = 43
+            xb = np.delete(xb, dl)
+            yb = np.delete(yb, dl)
+            sbb = np.delete(sbb, dl)
+            sigb = np.delete(sigb, dl)
+            nsb = np.delete(nsb, dl)
+            qgal = np.delete(qgal, dl)
+            PAgal = np.delete(PAgal, dl)
     
     ## 16:
     elif img_num == '16':
-        xb = np.array(([15, 20, 25, 24, 23, 32, 51.5, 55.5]))
-        yb = np.array(([36, 28.5, 23, 18, 14, 21, 33.5, 37.5]))
+        if save_key == 'div10':
+            xshft = 25
+            yshft = 24
+            dl = (5, 7)
+        elif save_key == 'tim10':
+            xshft = 3
+            yshft = 3
+            dl = (1, 3, 4, 5)
+#        xb = np.array(([15, 20, 25, 24, 23, 32, 51.5, 55.5]))
+#        yb = np.array(([36, 28.5, 23, 18, 14, 21, 33.5, 37.5]))
+#        sbb = np.array(([0.0033, 0.0038, 0.015, 0.0025, 0.003, 0.0046, 0.02, 0.0019]))*2
+#        sigb = np.array(([4, 2.5, 2.5, 2, 1.5, 1, 2.0, 1.5]))*1.5
+#        nsb = np.array(([1.0, 1.0, 1.0, 1.5, 1.0, 1.0, 1.2, 1.0]))*0.9
+#        qgal = np.array(([0.7, 0.7, 0.6, 0.8, 0.8, 0.8, 0.8, 0.8]))
+#        PAgal = np.array(([130, 130, 140, 80, 130, 45, 135, 135]))*np.pi/180
+        xb = np.array(([15, 20, 25, 24, 23, 32, 51.5, 55.5]))+xshft
+        yb = np.array(([36, 28.5, 23, 18, 14, 21, 33.5, 37.5]))+yshft
         sbb = np.array(([0.0033, 0.0038, 0.015, 0.0025, 0.003, 0.0046, 0.02, 0.0019]))*2
-        sigb = np.array(([4, 2.5, 2.5, 2, 1.5, 1, 2.0, 1.5]))*1.5
+        sigb = np.array(([4, 1.5, 2.5, 2, 0.5, 0.25, 2.0, 0.8]))
         nsb = np.array(([1.0, 1.0, 1.0, 1.5, 1.0, 1.0, 1.2, 1.0]))*0.9
         qgal = np.array(([0.7, 0.7, 0.6, 0.8, 0.8, 0.8, 0.8, 0.8]))
         PAgal = np.array(([130, 130, 140, 80, 130, 45, 135, 135]))*np.pi/180
+        if save_key == 'div10':
+            xb[3] = 53
+            yb[3] = 44
+            xb[2] -= 1
+            xb = np.delete(xb, dl)
+            yb = np.delete(yb, dl)
+            sbb = np.delete(sbb, dl)
+            sigb = np.delete(sigb, dl)
+            nsb = np.delete(nsb, dl)
+            qgal = np.delete(qgal, dl)
+            PAgal = np.delete(PAgal, dl)
+        elif save_key == 'tim10':
+            xb[0] = 19
+            yb[0] = 37
+            yb[2] = 25
+            xb[6] = 55
+            yb[6] = 36
+            xb[7] = 60
+            yb[7] = 38
+            xb = np.delete(xb, dl)
+            yb = np.delete(yb, dl)
+            sbb = np.delete(sbb, dl)
+            sigb = np.delete(sigb, dl)
+            nsb = np.delete(nsb, dl)
+            qgal = np.delete(qgal, dl)
+            PAgal = np.delete(PAgal, dl)
     
     ## 19:
     elif img_num == '19':
-        xb = np.array(([36, 28.5, 31.5]))
-        yb = np.array(([24, 23.5, 35.5]))
-        sbb = np.array(([0.0058, 0.004, 0.06]))*1.5
-        sigb = np.array(([3, 1.5, 2.5]))*1.5
-        nsb = np.array(([1.0, 1.0, 1.0]))
-        qgal = np.array(([0.5, 0.8, 0.6]))
-        PAgal = np.array(([120, 90, 130]))*np.pi/180
+        if save_key == 'div10':
+            xshft = -0.5
+            yshft = 1
+        elif save_key == 'tim10':
+            xshft = -13.5
+            yshft = -9.5
+#        xb = np.array(([36, 28.5, 31.5]))
+#        yb = np.array(([24, 23.5, 35.5]))
+#        sbb = np.array(([0.0058, 0.004, 0.06]))*1.5
+#        sigb = np.array(([3, 1.5, 2.5]))*1.5
+#        nsb = np.array(([1.0, 1.0, 1.0]))
+#        qgal = np.array(([0.5, 0.8, 0.6]))
+#        PAgal = np.array(([120, 90, 130]))*np.pi/180
+        xb = np.array(([36, 31.5]))+xshft
+        yb = np.array(([24, 35.5]))+yshft
+        sbb = np.array(([0.0058, 0.06]))*1.5
+        sigb = np.array(([3, 2.5]))*1.5
+        nsb = np.array(([1.0, 1.0]))
+        qgal = np.array(([0.5, 0.6]))
+        PAgal = np.array(([120, 130]))*np.pi/180
+        if save_key == 'div10':
+            xb = np.append(xb, [40, 43])
+            yb = np.append(yb, [26, 21])
+            sbb = np.append(sbb, [0.006, 0.004])
+            sigb = np.append(sigb, [1.5, 1, 0.5])
+            nsb = np.append(nsb, [1, 1, 1])
+            qgal = np.append(qgal, [0.8, 0.8, 0.8])
+            PAgal = np.append(PAgal, [90, 90, 60])*np.pi/180
     
     ## 21:
     elif img_num == '21':
-        xb = np.array(([13.5, 20.5, 24, 26, 17, 34, 29, 15, 35]))
-        yb = np.array(([19, 32, 36, 41, 38, 34, 46.5, 56, 53]))
+        if save_key == 'div10':
+            xshft = 7
+            yshft = 0
+            dl = 7
+        elif save_key == 'tim10':
+            xshft = 1
+            yshft = 3
+            dl = (5, 6, 8)
+#        xb = np.array(([13.5, 20.5, 24, 26, 17, 34, 29, 15, 35]))
+#        yb = np.array(([19, 32, 36, 41, 38, 34, 46.5, 56, 53]))
+#        sbb = np.array(([0.004, 0.0074, 0.014, 0.008, 0.003, 0.0017, 0.0021, 0.00122, 0.0009]))*1.1
+#        sigb = np.array(([4.5, 3, 2.5, 1.5, 2, 1, 1.5, 5, 1]))*1.5
+#        nsb = np.array(([1.0, 1.5, 1.1, 1.0, 1.0, 1.0, 1.0, 0.6, 1.0]))
+#        qgal = np.array(([.7, .6, .6, .8, .8, .8, .8, .9, .8]))
+#        PAgal = np.array(([40, 10, 110, 45, 135, 90, 10, 10, 45]))*np.pi/180
+        xb = np.array(([13.5, 20.5, 24, 26, 17, 34, 29, 15, 35]))+xshft
+        yb = np.array(([19, 32, 36, 41, 38, 34, 46.5, 56, 53]))+yshft
         sbb = np.array(([0.004, 0.0074, 0.014, 0.008, 0.003, 0.0017, 0.0021, 0.00122, 0.0009]))*1.1
-        sigb = np.array(([4.5, 3, 2.5, 1.5, 2, 1, 1.5, 5, 1]))*1.5
+        sigb = np.array(([4.5, 3, 2.5, 0.5, 0.7, 0.4, 1.5, 5, 1]))*1.5
         nsb = np.array(([1.0, 1.5, 1.1, 1.0, 1.0, 1.0, 1.0, 0.6, 1.0]))
         qgal = np.array(([.7, .6, .6, .8, .8, .8, .8, .9, .8]))
         PAgal = np.array(([40, 10, 110, 45, 135, 90, 10, 10, 45]))*np.pi/180
-    
+        if save_key == 'div10':
+            yb[0] -= 0.5
+            xb[0] -= 0.5
+            xb[1] -= 0.5
+            yb[1] += 1
+            sigb[1] = 1.5
+            xb[4] -= 1
+            yb[4] += 1
+            xb[5] = 22.5
+            yb[5] = 14.5
+            xb[3] = 21
+            yb[3] = 22
+            xb[6] = 29
+            yb[6] = 30
+            sigb[6] = 1.5
+            xb[8] = 27
+            yb[8] = 28
+            xb = np.delete(xb, dl)
+            yb = np.delete(yb, dl)
+            sbb = np.delete(sbb, dl)
+            sigb = np.delete(sigb, dl)
+            nsb = np.delete(nsb, dl)
+            qgal = np.delete(qgal, dl)
+            PAgal = np.delete(PAgal, dl)
+        elif save_key == 'tim10':
+            yb[4] = 40
+            xb[1] = 21
+            yb[1] = 36
+            xb[3] = 22
+            yb[3] = 31
+            xb[0] = 16
+            xb = np.delete(xb, dl)
+            yb = np.delete(yb, dl)
+            sbb = np.delete(sbb, dl)
+            sigb = np.delete(sigb, dl)
+            nsb = np.delete(nsb, dl)
+            qgal = np.delete(qgal, dl)
+            PAgal = np.delete(PAgal, dl)
+            
+            
+        
     else:
         print("Add initial guess for image {}".format(img_num))
         
@@ -444,8 +919,11 @@ if args_in.sim:
 #    img_num = int(os.path.split(args_in.filename)[1][8:11])
 #    xb, yb, sbb, sigb, nsb, qgal, PAgal = src.import_guesses(img_num)
     spar = pyfits.open(args_in.filename)[2].data
-    img = pyfits.open(args_in.filename)[1].data
-    msk = spar[2] > 0.1*np.max(spar[2])
+    noise = pyfits.open(args_in.filename)[1].data
+    ### make a cut on the peak flux in ~1pixel from each clump - depends on i and r
+    fluxes = src.eff_flux(np.sqrt(1/np.pi),spar[2], spar[3])
+    print np.std(noise)
+    msk = fluxes > 1*np.std(noise)
 #    print msk
     xb, yb, sbb, sigb, qgal, PAgal = spar[0][msk], spar[1][msk], spar[2][msk], spar[3][msk], spar[4][msk], spar[5][msk]
 #    if len(xb) > 4:
@@ -588,10 +1066,13 @@ chi2_guess = np.sum((pix_image-guess_model)**2*pix_invar)/(np.size(pix_image)-np
 print("Guess chi^2 red = {}".format(chi2_guess))
 
 if eval_guess:
-    plt.imshow(np.hstack((pix_image,guess_model,pix_image-guess_model)))
+#    plt.imshow(np.hstack((pix_image,guess_model,pix_image-guess_model)),interpolation='none')
+    plt.imshow(pix_image, interpolation = 'none')
+    plt.plot(xb, yb, 'bo')
 #    sf.plot_3D((pix_image-guess_model))
     plt.show()
     plt.close()
+    exit(0)
 
 ### Actual fitting:
 #leastsq_kws = {'maxfev':16000} #Option to adjust maximum function evaluations
@@ -681,10 +1162,12 @@ init_guesses = np.vstack((sersic_estimates, sersic_mins, sersic_maxes, sersic_fi
 ##### Save results
 savedir = '/home/matt/software/matttest/results'
 junk, filename = os.path.split(args_in.filename)
+if save_key is not '':
+    save_key = '_' + save_key
 if gam_fixed or kws['blob_type'] != 'eff':
-    filename = "{}_{}.fits".format(filename[:11],kws['blob_type'])
+    filename = "{}_{}{}.fits".format(filename[:11],kws['blob_type'],save_key)
 else:
-    filename = "{}_{}_gam_free.fits".format(filename[:11],kws['blob_type'])
+    filename = "{}_{}_gam_free{}.fits".format(filename[:11],kws['blob_type'],save_key)
 savefile = os.path.join(savedir,filename)
 
 hdu1 = pyfits.PrimaryHDU(best_params) #parameters from lmfit

@@ -50,6 +50,14 @@ class Pdf_info:
         self.dist = distribution
         self.normalized = normalized
 
+    def add_invar(self, invar):
+        if len(invar.shape) == 1:
+            invar = invar.reshape((1,len(invar)))
+        self.invar = invar
+
+    def add_kwargs(self, kwargs):
+        self.kwargs = kwargs
+
     def add_params(self, params):
         ### params should be an lmfit.Parameters() object
         self.params = params
@@ -68,6 +76,7 @@ class Pdf_info:
             self.bounds = bounds
         else:
             self.bounds = np.array((bounds))
+            
     def add_dependence(self, Pdf):
         ### Pdf should be another instance of Pdf_info
         self.dependence += Pdf
@@ -76,6 +85,10 @@ class Pdf_info:
         ### Function to use when drawing from this distribution
         ### Should be related to self.dist
         self.draw = draw
+
+def eff_flux(r, io, a, eta=3/2):
+    flux = 2*np.pi*io*(-(a**2+r**2)*(1+(r/a)**2)**-eta/(2*(eta-1)) + a**2/(2*(eta-1)))
+    return flux
 
 def get_axis_ratio(image, centroid):
     """ Trying to get PA, q for galaxies as a whole...
@@ -185,7 +198,7 @@ def get_centroids(filenames,use_model=False,ext=8, dims=None, return_axis_ratio=
     for f in filenames:
         fits = pyfits.open(f)
         if 'sim' in f:
-            image = fits[0].data
+            image = fits[0].data-fits[1].data
             junk_invar = np.ones(image.shape)
         else:
             image = fits[ext].data
@@ -194,7 +207,7 @@ def get_centroids(filenames,use_model=False,ext=8, dims=None, return_axis_ratio=
             paramarray = load_sersic_params(f, param_kw=param_kw)
             params = convert_sersic_params(paramarray)
             image = galaxy_profile(params,np.arange(image.shape[1]),np.arange(image.shape[0]),image,junk_invar,return_residuals=False,blob_type='sersic',nblobs=paramarray.shape[1])
-        centroids[idx] = sf.centroid(image)
+        centroids[idx] = sf.centroid(image, view_plot=False)
 #        plt.imshow(image,interpolation='none')
 #        print(centroids[idx])
 #        plt.show()
@@ -258,6 +271,21 @@ def source_mosaic(filenames,ext=8, vlims=[0,0.6]):
     filenames = filenames[:-2]
     for filename in filenames:
         pix_image, pix_invar = open_image(filename)
+        pix_val = pix_image[pix_image != 0]
+#        ps = pix_val[pix_val<1.5*np.mean(pix_val)]
+#        bg = np.median(ps)
+#        rms = np.sqrt(bg**2)
+#        std = np.std(ps)
+#        mx = np.max(pix_image)
+#        print filename
+#        print "rms:", rms, "std:", std
+#        print "rms/mx:", rms/mx, "std/mx:", std/mx
+#        plt.close()
+#        plt.hist(ps,20)
+#        plt.show()
+#        plt.close()
+#        plt.hist(pix_val,200)
+#        plt.show()
         plt.subplot(4,5,idx+1)
         ax = plt.gca()
         ax.xaxis.set_visible(False)
@@ -431,7 +459,7 @@ def open_image(filename):
     return pix_image, pix_invar
     
 def load_sersic_params(filename, savedir = '/home/matt/software/matttest/results', param_kw='sersic', verbose=False):
-    ''' Loads saved values of parameters (right now only does sersic)
+    ''' Loads saved values of parameters (right now only does sersic, eff)
         Returns array of size (nparams x nblobs)
     '''
     root, filename = os.path.split(filename)
@@ -641,6 +669,41 @@ def import_guesses(img_num,fl='/home/matt/software/matttest/docs/Sim Blob Distri
     sect = range(ind1s[img_num], ind1s[img_num]+nblobs[img_num])
     return xc[sect], yc[sect], sbmx[sect], rad[sect], nsb[sect], qb[sect], PA[sect]
     
+def import_sim_blob_values(filenames):
+    re = np.zeros((1000))
+    rpx = np.zeros((1000))
+    dc = np.zeros((1000))
+    Ie = np.zeros((1000))
+    qb = np.zeros((1000))
+    gidx = 0
+    for f in filenames:
+        spar = pyfits.open(f)[2].data
+        noise = pyfits.open(f)[1].data
+        img = pyfits.open(f)[0].data
+        ### make a cut on the peak flux in ~1pixel from each clump - depends on i and r
+        fluxes = eff_flux(np.sqrt(1/np.pi),spar[2], spar[3])
+#        print np.std(noise)
+        msk = fluxes > 1*np.std(noise)
+    #    print msk
+        xb, yb, sbb, sigb, qgal, PAgal = spar[0][msk], spar[1][msk], spar[2][msk], spar[3][msk], spar[4][msk], spar[5][msk]
+        xc, yc = sf.centroid(img)
+        bidx = 0
+        nb = len(xb)
+        for i in range(nb):
+            re[gidx+bidx] = px_to_pc(sigb[bidx], 0.01, 2.5)/1000
+            rpx[gidx+bidx] = sigb[bidx]
+            dc[gidx+bidx] = px_to_pc(np.sqrt((xb[bidx]-xc)**2 + (yb[bidx]-yc)**2), 0.01, 2.5)/1000
+            Ie[gidx+bidx] = sbb[bidx]
+            qb[gidx+bidx] = qgal[bidx]
+            bidx += 1
+        gidx += nb
+    re = re[re!=0]
+    rpx = rpx[rpx!=0]
+    dc = dc[dc!=0]
+    Ie = Ie[Ie!=0]
+    qb = qb[qb!=0]
+    return re, rpx, dc, Ie, qb
+    
 def import_fitted_blob_values(plot_dists=False,centroids=None, qgal=None, PAgal=None, logscale=False, bins=14, Icut = False, param_kw=None, sim=False, return_lum=False):
     """ Imports the values I found by fitting sersic models.  This isn't
         very flexible right now...
@@ -662,11 +725,12 @@ def import_fitted_blob_values(plot_dists=False,centroids=None, qgal=None, PAgal=
     redshifts = np.loadtxt('/home/matt/software/matttest/docs/Galaxy_redshifts.csv', delimiter=',', dtype=str)
     data='/home/matt/software/matttest/data/pix_source_models.txt'
     filenames = np.loadtxt(data,np.str)
-    redshift_hdrs = redshifts[0,:]
+#    redshift_hdrs = redshifts[0,:]
     redshifts = redshifts[1:,:]
     re = np.zeros((1000))
+    rpx = np.zeros((1000))
     Ie = np.zeros((1000))
-    Fe = np.zeros((1000))
+    Sbe = np.zeros((1000))
     nsers = np.zeros((1000))
     qb = np.zeros((1000))
     PAb = np.ones((1000))*100
@@ -693,10 +757,11 @@ def import_fitted_blob_values(plot_dists=False,centroids=None, qgal=None, PAgal=
                 if redshifts[j,0][1:11] in f:
                     zgal = float(redshifts[j,1])
         rshft[gidx] = zgal
+        k_corr = k_correction(zgal)
         best_params = param_file[0].data
 #        exptime = param_file[0].header['EXPTIME']
 #        photflam = param_file[0].header['PHOTFLAM']
-        exptime = 626 #varies - need to key on this
+#        exptime = 626 #varies - need to key on this
         photflam = 1.1845489#*10**-19 #constant
         if param_file[0].header['MODEL'] == 'sersic':
             div = 7
@@ -724,33 +789,37 @@ def import_fitted_blob_values(plot_dists=False,centroids=None, qgal=None, PAgal=
                 xb = best_params[div*i]
                 yb = best_params[div*i+1]
                 rsep[bidx] = px_to_pc(np.sqrt((xb-centroids[gidx,0])**2 + (yb-centroids[gidx,1])**2),0.01,zgal)
-            Ie[bidx] = best_params[div*i+2]
-            Fe[bidx] = best_params[div*i+2]*photflam/exptime
+            Ie[bidx] = best_params[div*i+2]*k_corr
+            Sbe[bidx] = best_params[div*i+2]*photflam*k_corr
             re[bidx] = px_to_pc(best_params[div*i+3],0.01,zgal)
+            rpx[bidx] = best_params[div*i+3]
             nsers[bidx] = best_params[div*i+4]
             qb[bidx] = best_params[div*i+5]
             PAb[bidx] = best_params[div*i+6]# - PAgal[gidx]
             lum_tmp[i] = io_r_to_lum(Ie[bidx],re[bidx]/1000,zgal)
+#            eff_flx = eff_flux(np.sqrt(1/np.pi),Ie[bidx],best_params[div*i+3])
             bidx += 1
         lums[gidx] = lum_tmp
         gidx += 1
     param_kw = param_kw[1:]
     re = re[re!=0]
+    rpx = rpx[rpx!=0]
     rscl = 1
-#    if param_kw == 'eff':
+#    if 'eff' in param_kw:
 #        rscl = (np.sqrt((0.5)**(1/(1-3/2))-1)) ##convert a to r1/2
     rsc = 5
     re /= 1000
     rsep /= 1000
     Ie = Ie[Ie!=0]
-    Fe = Fe[Fe!=0]
-    exptime = 626 #varies - need to key on this
+    Sbe = Sbe[Sbe!=0]
+#    exptime = 626 #varies - need to key on this
     photflam = 1.1845489#*10**-19 #constant
-    iscl = photflam #*10**22 to get on scale [0, 1]
+    arcsec2 = (0.01)**2
+    iscl = photflam/arcsec2/10**4 #*10**22 to get on scale [0, 1]
     ### convert to magnitudes
 #    Ie = find_abmag(Ie)
     ### or convert to flux
-#    Ie = Fe*10**22
+#    Ie = Sbe*10**22
 #    Ie.astype(float)
     nsers = nsers[nsers!=0]
     qb = qb[qb!=0]
@@ -773,14 +842,14 @@ def import_fitted_blob_values(plot_dists=False,centroids=None, qgal=None, PAgal=
 #        ax1.set_title('Number of Clumps')
         ax1.hist(nblobs,bins=(np.max(nblobs)-np.min(nblobs)+1),color=hcolor)
         xlabel = ax1.set_xlabel("$N_{clumps}\ per\ galaxy$")
-        print centroids
-        print QG
+#        print centroids
+#        print QG
         ax2.hist(QG,bins=int(len(QG)/2),color=hcolor)
         ax2.set_xlabel("$Galaxy\ Axis\ Ratio$")
         if param_kw is None:
             plt.savefig(os.path.join(savedir,'Gxy_histograms.pdf'), bbox_extra_artists=[xlabel], bbox_inches='tight')
         else:
-            plt.savefig(os.path.join(savedir,'Gxy_histograms{}.pdf'.format(param_kw)), bbox_extra_artists=[xlabel], bbox_inches='tight')
+            plt.savefig(os.path.join(savedir,'Gxy_histograms_{}.pdf'.format(param_kw)), bbox_extra_artists=[xlabel], bbox_inches='tight')
         ### Clump Histograms
         ######################################################
         fig, ((ax1, ax2), (ax3, ax4), (ax5, ax6)) = plt.subplots(3,2,figsize=(10,10))
@@ -792,18 +861,18 @@ def import_fitted_blob_values(plot_dists=False,centroids=None, qgal=None, PAgal=
             ax1.hist(re,bins,color=hcolor)
         else:
             ax1.hist(re[re<rsc*np.median(re)]*rscl,bins,color=hcolor)
-        ax1.set_xlabel("$Radius\ (kpc)$")
+        ax1.set_xlabel("$r_c\ (kpc)$")
 #        ax2.set_title('Intensity of Clumps')
         ax2.hist(Ie*iscl,bins,color=hcolor)
-        ax2.set_xlabel("$flux\ (ergs/cm^{2}/s/\AA\ *\ 10^{22})$")
+        ax2.set_xlabel("$i_c\ (ergs/cm^{2}/s/\AA/arcsec^{2}\ *\ 10^{15})$")
 #        ax2.set_xlabel("$Intensity\ (counts)$")
 #        ax3.set_title('Clump Separation from Centroid')
         ax3.hist(rsep,bins,color=hcolor)
-        ax3.set_xlabel("$Distance\ from\ centroid (kpc)$")
+        ax3.set_xlabel("$d_c\ (kpc)$")
 #        ax4.set_title('Sersic Index')
-        if param_kw == 'eff':
+        if 'eff' in param_kw:
             ax4.hist(qb,bins,color=hcolor)
-            ax4.set_xlabel("$Axis\ Ratio$")
+            ax4.set_xlabel("$q_c$")
             fig.delaxes(ax5)
             fig.delaxes(ax6)
         else:
@@ -826,98 +895,99 @@ def import_fitted_blob_values(plot_dists=False,centroids=None, qgal=None, PAgal=
                 plt.savefig(os.path.join(savedir,'Clump_histograms_{}.pdf'.format(param_kw)), bbox_inches='tight')
         ### Scatter plots
         ######################################################
-        if param_kw == 'eff':
-            fig2, ((ax1a, ax2a), (ax3a, ax4a), (ax5a, ax6a)) = plt.subplots(3,2,figsize=(10,10))
+        spfnt = 14
+        if 'eff' in param_kw:
+            fig2, ((ax1a, ax2a, ax3a), (ax4a, ax5a, ax6a)) = plt.subplots(2,3,figsize=(14,8))
         else:
             fig2, ((ax1a, ax2a), (ax3a, ax4a), (ax5a, ax6a), (ax7a, ax8a), (ax9a, ax10a)) = plt.subplots(5,2,figsize=(10,15))
 #        fig2.suptitle('Scatterplots of Clump Parameters',fontsize=24)
-        fig2.subplots_adjust(top = 0.9, wspace = 0.3, hspace = 0.5)
+        fig2.subplots_adjust(top = 0.9, wspace = 0.3, hspace = 0.3)
 #        ax1a.set_title('Radius vs Intensity')
 #        ax1a.plot(re,Ie,'k.')
         if logscale:
             ax1a.plot(re,Ie,'k.')
         else:
             ax1a.plot(re[re<rsc*np.median(re)]*rscl,Ie[re<rsc*np.median(re)]*iscl,'k.')
-        ax1a.set_xlabel("$Radius\ (kpc)$")
-        ax1a.set_ylabel("$flux\ (ergs/cm^{2}/s/\AA\ *\ 10^{22})$")
+        ax1a.set_xlabel("$r_c\ (kpc)$", fontsize=spfnt)
+        ax1a.set_ylabel("$i_c\ (ergs/cm^{2}/s/\AA/asec^{2}\ *\ 10^{15})$", fontsize=spfnt)
 #        ax1a.set_ylabel("$Intensity\ (counts)$")
         corr1 = sf.correlation_coeff(re,Ie)
         ax1a.text(0.65,0.75,'r = {:.3f}'.format(corr1),transform=ax1a.transAxes)
-        if param_kw == 'eff':
-    #        ax4a.set_title('Radius vs Ellpticity')
+        if 'eff' in param_kw:
+    #        ax4a.set_title('r_c vs Ellpticity')
     #        ax4a.plot(re,qb,'k.')        
             if logscale:
                 ax2a.plot(re,qb,'k.')
             else:
                 ax2a.plot(re[re<rsc*np.median(re)]*rscl,qb[re<rsc*np.median(re)],'k.')
-            ax2a.set_xlabel("$Radius\ (kpc)$")
-            ax2a.set_ylabel("$Axis\ Ratio$")
+            ax2a.set_xlabel("$r_c\ (kpc)$", fontsize=spfnt)
+            ax2a.set_ylabel("$q_c\ (b/a)$", fontsize=spfnt)
             corr2 = sf.correlation_coeff(re,qb)
             ax2a.text(0.65,0.75,'r = {:.3f}'.format(corr2),transform=ax2a.transAxes)
     #        ax3a.set_title('Intensity vs Ellipticity')
             ax3a.plot(Ie*iscl,qb,'k.')
 #            ax3a.set_xlabel("$Intensity\ (counts)$")
-            ax3a.set_xlabel("$flux\ (ergs/cm^{2}/s/\AA\ *\ 10^{22})$")
-            ax3a.set_ylabel("$Axis\ Ratio$")
+            ax3a.set_xlabel("$i_c\ (ergs/cm^{2}/s/\AA/arcsec^{2}\ *\ 10^{15})$", fontsize=spfnt)
+            ax3a.set_ylabel("$q_c\ (b/a)$", fontsize=spfnt)
             corr3 = sf.correlation_coeff(Ie,qb)
             ax3a.text(0.65,0.75,'r = {:.3f}'.format(corr3),transform=ax3a.transAxes)
-    #        ax7a.set_title('Radius vs Distance from Centroid')
+    #        ax7a.set_title('r_c vs Distance from Centroid')
             ax4a.plot(re[re<rsc*np.median(re)],rsep[re<rsc*np.median(re)],'k.')
     #        ax7a.plot(re,rsep,'k.')        
             if logscale:
                 ax4a.plot(re,rsep,'k.')
             else:
                 ax4a.plot(re[re<rsc*np.median(re)]*rscl,rsep[re<rsc*np.median(re)],'k.')           
-            ax4a.set_xlabel("$Radius\ (kpc)$")
-            ax4a.set_ylabel("$Distance\ (kpc)$")
+            ax4a.set_xlabel("$r_c\ (kpc)$", fontsize=spfnt)
+            ax4a.set_ylabel("$d_c\ (kpc)$", fontsize=spfnt)
             corr4 = sf.correlation_coeff(re,rsep)
             ax4a.text(0.65,0.75,'r = {:.3f}'.format(corr4),transform=ax4a.transAxes)
     #        ax8a.set_title('Intensity vs Distance from Centroid')
             ax5a.plot(Ie*iscl,rsep,'k.')
 #            ax5a.set_xlabel("$Intensity\ (counts)$")
-            ax5a.set_xlabel("$flux\ (ergs/cm^{2}/s/\AA\ *\ 10^{22})$")
-            ax5a.set_ylabel("$Distance\ (kpc)$")
+            ax5a.set_xlabel("$i_c\ (ergs/cm^{2}/s/\AA/arcsec^{2}\ *\ 10^{15})$", fontsize=spfnt)
+            ax5a.set_ylabel("$d_c\ (kpc)$", fontsize=spfnt)
             corr5 = sf.correlation_coeff(Ie,rsep)
             ax5a.text(0.65,0.75,'r = {:.3f}'.format(corr5),transform=ax5a.transAxes)
     #        ax10a.set_title('Ellipticity vs Distance from Centroid')
             ax6a.plot(qb,rsep,'k.')
             corr6 = sf.correlation_coeff(qb,rsep)
             ax6a.text(0.65,0.75,'r = {:.3f}'.format(corr6),transform=ax6a.transAxes)
-            ax6a.set_xlabel("$Axis\ Ratio$")
-            ax6a.set_ylabel("$Distance\ (kpc)$")        
+            ax6a.set_xlabel("$q_c\ (b/a)$", fontsize=spfnt)
+            ax6a.set_ylabel("$d_c\ (kpc)$", fontsize=spfnt)        
         else:
-    #        ax2a.set_title('Radius vs Sersic Index')
+    #        ax2a.set_title('r_c vs Sersic Index')
     #        ax2a.plot(re,nsers,'k.')
             if logscale:        
                 ax2a.plot(re,nsers,'k.')
             else:
                 ax2a.plot(re[re<rsc*np.median(re)],nsers[re<rsc*np.median(re)],'k.')
-            ax2a.set_xlabel("$Radius\ (kpc)$")
+            ax2a.set_xlabel("$r_c\ (kpc)$")
             ax2a.set_ylabel("$Sersic\ Index$")
             corr2 = sf.correlation_coeff(re,nsers)
             ax2a.text(0.65,0.75,'r = {:.3f}'.format(corr2),transform=ax2a.transAxes)
     #        ax3a.set_title('Intensity vs Sersic Index')
             ax3a.plot(Ie,nsers,'k.')
 #            ax3a.set_xlabel("$Intensity\ (counts)$")
-            ax3a.set_xlabel("$flux\ (ergs/cm^{2}/s/\AA\ *\ 10^{22})$")
+            ax3a.set_xlabel("$i_c\ (ergs/cm^{2}/s/\AA/arcsec^{2}\ *\ 10^{15})$")
             ax3a.set_ylabel("$Sersic\ Index$")
             corr3 = sf.correlation_coeff(Ie,nsers)
             ax3a.text(0.65,0.75,'r = {:.3f}'.format(corr3),transform=ax3a.transAxes)
-    #        ax4a.set_title('Radius vs Ellpticity')
+    #        ax4a.set_title('r_c vs Ellpticity')
     #        ax4a.plot(re,qb,'k.')        
             if logscale:
                 ax4a.plot(re,qb,'k.')
             else:
                 ax4a.plot(re[re<rsc*np.median(re)]*rscl,qb[re<rsc*np.median(re)],'k.')
-            ax4a.set_xlabel("$Radius\ (kpc)$")
-            ax4a.set_ylabel("$Axis\ Ratio$")
+            ax4a.set_xlabel("$r_c\ (kpc)$")
+            ax4a.set_ylabel("$q_c\ (b/a)$")
             corr4 = sf.correlation_coeff(re,qb)
             ax4a.text(0.65,0.75,'r = {:.3f}'.format(corr4),transform=ax4a.transAxes)
     #        ax5a.set_title('Intensity vs Ellipticity')
             ax5a.plot(Ie,qb,'k.')
-            ax5a.set_xlabel("$flux\ (ergs/cm^{2}/s/\AA\ *\ 10^{22})$")
+            ax5a.set_xlabel("$i_c\ (ergs/cm^{2}/s/\AA/arcsec^{2}\ *\ 10^{15})$")
 #            ax5a.set_xlabel("$Intensity\ (counts)$")
-            ax5a.set_ylabel("$Axis\ Ratio$")
+            ax5a.set_ylabel("$q_c\ (b/a)$")
             corr5 = sf.correlation_coeff(Ie,qb)
             ax5a.text(0.65,0.75,'r = {:.3f}'.format(corr5),transform=ax5a.transAxes)
     #        ax6a.set_title('Sersic Index vs Ellipticity')
@@ -925,23 +995,23 @@ def import_fitted_blob_values(plot_dists=False,centroids=None, qgal=None, PAgal=
             corr6 = sf.correlation_coeff(nsers,qb)
             ax6a.text(0.65,0.75,'r = {:.3f}'.format(corr6),transform=ax6a.transAxes)
             ax6a.set_xlabel("$Sersic\ Index$")
-            ax6a.set_ylabel("$Axis\ Ratio$")
-    #        ax7a.set_title('Radius vs Distance from Centroid')
+            ax6a.set_ylabel("$q_c\ (b/a)$")
+    #        ax7a.set_title('r_c vs Distance from Centroid')
             ax7a.plot(re[re<rsc*np.median(re)],rsep[re<rsc*np.median(re)],'k.')
     #        ax7a.plot(re,rsep,'k.')        
             if logscale:
                 ax7a.plot(re,rsep,'k.')
             else:
                 ax7a.plot(re[re<rsc*np.median(re)],rsep[re<rsc*np.median(re)],'k.')           
-            ax7a.set_xlabel("$Radius\ (kpc)$")
+            ax7a.set_xlabel("$r_c\ (kpc)$")
             ax7a.set_ylabel("$Distance\ (kpc)$")
             corr7 = sf.correlation_coeff(re,rsep)
             ax7a.text(0.65,0.75,'r = {:.3f}'.format(corr7),transform=ax7a.transAxes)
     #        ax8a.set_title('Intensity vs Distance from Centroid')
             ax8a.plot(Ie,rsep,'k.')
 #            ax8a.set_xlabel("$Intensity\ (counts)$")
-            ax8a.set_xlabel("$flux\ (ergs/cm^{2}/s/\AA\ *\ 10^{22})$")
-            ax8a.set_ylabel("$Distance\ (kpc)$")
+            ax8a.set_xlabel("$i_c\ (ergs/cm^{2}/s/\AA/arcsec^{2}\ *\ 10^{15})$")
+            ax8a.set_ylabel("$d_c\ (kpc)$")
             corr8 = sf.correlation_coeff(Ie,rsep)
             ax8a.text(0.65,0.75,'r = {:.3f}'.format(corr8),transform=ax8a.transAxes)
     #        ax9a.set_title('Sersic Index vs Distance from Centroid')
@@ -949,13 +1019,13 @@ def import_fitted_blob_values(plot_dists=False,centroids=None, qgal=None, PAgal=
             corr9 = sf.correlation_coeff(nsers,rsep)
             ax9a.text(0.65,0.75,'r = {:.3f}'.format(corr9),transform=ax9a.transAxes)
             ax9a.set_xlabel("$Sersic\ Index$")
-            ax9a.set_ylabel("$Distance\ (kpc)$")
+            ax9a.set_ylabel("$d_c\ (kpc)$")
     #        ax10a.set_title('Ellipticity vs Distance from Centroid')
             ax10a.plot(qb,rsep,'k.')
             corr10 = sf.correlation_coeff(qb,rsep)
             ax10a.text(0.65,0.75,'r = {:.3f}'.format(corr10),transform=ax10a.transAxes)
-            ax10a.set_xlabel("$Axis\ Ratio$")
-            ax10a.set_ylabel("$Distance\ (kpc)$")
+            ax10a.set_xlabel("$q_c\ (b/a)$")
+            ax10a.set_ylabel("$d_c\ (kpc)$")
         if logscale:
             if param_kw is None:
                 plt.savefig(os.path.join(savedir,'Clump_scatterplots_log.pdf'), bbox_inches='tight')
@@ -971,7 +1041,7 @@ def import_fitted_blob_values(plot_dists=False,centroids=None, qgal=None, PAgal=
     if return_lum:
         return lums
     else:
-        return nblobs, re, Ie, rsep, nsers, qb, PAb, QG, PAG
+        return nblobs, re, Ie, rsep, nsers, qb, PAb, QG, PAG, rpx
     
 def trial_lfrac(xarr,n,sig):
     """ Test empirical function for luminosity fraction.
@@ -1064,7 +1134,7 @@ def get_rots(x, y, z, th1, th2, th3, inv=False):
         zr = x*Ri[2,0] + y*Ri[2,1] + z*Ri[2,2]
     return xr, yr, zr
     
-def make_sim_gal(clump_object_list, gal_object_list=None, dim=100, profile='sersic', return_noise=False, nclumps=None, save=False, save_idx=0):
+def make_sim_gal(clump_object_list, gal_object_list=None, dim=100, profile='sersic', return_noise=False, nclumps=None, save=False, save_idx=0, plot_results=False):
     """ Generates one sample galaxy with PDF form and params given
         in a saved value (load from *_object_list)
         Some alternatives are hardcoded for now (mostly q, PA, nblobs)
@@ -1084,8 +1154,8 @@ def make_sim_gal(clump_object_list, gal_object_list=None, dim=100, profile='sers
 #        nclumps = np.random.poisson(lam)
     ### change - pick nclumps from uniform dist on [1, 9]
     if nclumps is None:
-        nclumps = int((8*np.random.random()+1)/0.667)
-#    nclumps = 1000
+        nclumps = int((9*np.random.random()))+1
+#    nclumps = 86
     rsarr = np.zeros(nclumps)
     rbarr = np.zeros(nclumps)
     qbarr = np.zeros(nclumps)
@@ -1099,7 +1169,11 @@ def make_sim_gal(clump_object_list, gal_object_list=None, dim=100, profile='sers
 #    qgal = sf.sine_draw()
     ### for now, qgal looks uniform for eff...
     if profile == 'eff':
-        qgal = 0.8*np.random.rand()+0.1
+#        qgal = 0.8*np.random.rand()+0.1
+#        qgal = 0.15*np.random.randn() + 0.5
+#        while qgal <= 0 or qgal > 1:
+#            qgal = 0.15*np.random.randn() + 0.5
+        qgal = 1
         thgal = 2*np.pi*np.random.rand()
     ### Then assign each clump other qualities and add to galaxy
     if profile == 'sersic':
@@ -1161,6 +1235,8 @@ def make_sim_gal(clump_object_list, gal_object_list=None, dim=100, profile='sers
     #        print sig
     #        print sbmxb
     elif profile == 'eff':
+        '''
+        with old pdf configuration
         Rsep = clump_object_list[0]
         IRQ = clump_object_list[1]
         rcc = np.zeros(nclumps)
@@ -1179,21 +1255,17 @@ def make_sim_gal(clump_object_list, gal_object_list=None, dim=100, profile='sers
                 ie = IRQ.data[1]
                 qb = IRQ.data[2]
                 th1, th2, th3 = IRQ.paramarray[6:]
+                rpars = np.array(([IRQ.paramarray[0],IRQ.paramarray[3]]))
+                ipars = np.array(([IRQ.paramarray[1],IRQ.paramarray[4]]))
+                qpars = np.array(([IRQ.paramarray[2],IRQ.paramarray[5]]))
                 ### Draw from "independent" PDFs in rotated frame, then rotate back
                 rrot, irot, qrot = get_rots(re,ie,qb,th1,th2,th3)
-                rrd = IRQ.draw[0](params=IRQ.paramarray[0:2],lims=[np.min(rrot), np.max(rrot)])
+                rrd = IRQ.draw[0](params=rpars,lims=[np.min(rrot), np.max(rrot)])
                 ### I, Q somehow switched from what I put in... Figure this out
                 ### if possible
-                qpars = IRQ.paramarray[2:4]*1.0
-                qpars[1] *= 2.5 ### manually broaden...
-                qrd = IRQ.draw[1](params=qpars,lims=[np.min(qrot), np.max(qrot)])
-                ird = IRQ.draw[2](params=IRQ.paramarray[4:6],lims=[np.min(irot), np.max(irot)])
+                qrd = IRQ.draw[2](params=qpars,lims=[np.min(qrot), np.max(qrot)])
+                ird = IRQ.draw[1](params=ipars,lims=[np.min(irot), np.max(irot)])
                 red, ied, qbd = get_rots(rrd, ird, qrd, th1, th2, th3, inv=True)
-#                ied = abs(ied) #hack for now to keep positive
-#                exptime = 626 #varies - need to key on this
-#                photflam = 1.1845489
-#                ied *= photflam/exptime*10**3
-                red = abs(red)
 #                red *= (4.0/5) ### Empirical correction, not sure why this happens...
                 ref = px_to_pc(red*1000, arcsec_per_px, zsim, inv=True)
 #                ref = red
@@ -1202,80 +1274,103 @@ def make_sim_gal(clump_object_list, gal_object_list=None, dim=100, profile='sers
 #                    draw_irq(IRQ)
                 return ref, ied, qbd
             ref, ied, qbd = draw_irq(IRQ)
-            while ied < 0:
+            while ied < 0 or ref < 0 or qbd < 0 or qbd > 1:
                 ref, ied, qbd = draw_irq(IRQ)
-#            print "clump, params, rc, ie, re, qb:"
-#            print rc, ied, ref, qbd
             ### Place centroid randomly based upon qgal
-#            print qgal, PA
+            #'''
+        QBE = clump_object_list[0]
+        IRD = clump_object_list[1]
+        rcc = np.zeros(nclumps)
+        xycc = np.zeros((2,nclumps))
+        for i in range(nclumps):
+            qb = QBE.draw(params=QBE.paramarray, lims=[np.min(QBE.data), np.max(QBE.data)])#lims = [0, 1])
+            PA = np.pi*np.random.rand()
+            def draw_ird(IRD):
+                re = IRD.data[0]
+                ie = IRD.data[1]
+                dc = IRD.data[2]
+                th1, th2, th3 = IRD.paramarray[6:]
+                rpars = np.array(([IRD.paramarray[0],IRD.paramarray[3]]))
+                ipars = np.array(([IRD.paramarray[1],IRD.paramarray[4]]))
+                dpars = np.array(([IRD.paramarray[2],IRD.paramarray[5]]))
+                ### Draw from "independent" PDFs in rotated frame, then rotate back
+                rrot, irot, drot = get_rots(re,ie,dc,th1,th2,th3)
+                mf = 0.75 #scales up/down the max allowable radius
+                rrd = IRD.draw[0](params=rpars,lims=[np.min(rrot), np.max(rrot)*mf])
+                ird = IRD.draw[1](params=ipars,lims=[np.min(irot), np.max(irot)])
+                drd = IRD.draw[2](params=dpars,lims=[np.min(drot), np.max(drot)])
+                red, ied, dcd = get_rots(rrd, ird, drd, th1, th2, th3, inv=True)
+#                red *= (4.0/5) ### Empirical correction, not sure why this happens...
+                ref = px_to_pc(red*1000, arcsec_per_px, zsim, inv=True)
+                dcf = px_to_pc(dcd*1000, arcsec_per_px, zsim, inv=True)
+                dcf /= 1.2 #Empirical correction factor, found 1.2
+#                ref = red
+                ### Enforce a minimum on axis ratio...
+#                if qbd < 0.3:
+#                    draw_irq(IRQ)
+                return ref, ied, dcf
+            ref, ied, dcf = draw_ird(IRD)
+            while ied < 0 or ref < 0 or dcf < 0:
+                print "re-drawing"
+                ref, ied, dcf = draw_ird(IRD)
+            qbd = qb
+            rc = dcf
             thpr = 2*np.pi*np.random.rand()
             xcb = rc/np.sqrt(qgal)*np.cos(thpr)
             ycb = rc*np.sqrt(qgal)*np.sin(thpr)
             ### Rotate to galaxy position angle thgal
             xcf = xcb*np.cos(thgal) - ycb*np.sin(thgal) + xc
             ycf = ycb*np.cos(thgal) + xcb*np.sin(thgal) + yc
-#            xd = rc/np.sqrt(qgal)*(2*np.random.rand()-1)#*(sf.cos_draw())
-##            print xd
-#            xcb = xd + xc
-#            ysign = 1 if np.random.rand() > 0.5 else -1
-#            ycb = ysign*np.sqrt(qgal*rc**2 - qgal**2*xd**2) + yc
             rcc[i] = rc
             xycc[:,i] = [xcf, ycf]
             clump_im = sf.eff2d(np.arange(dim), np.arange(dim), xcf, ycf, ied, ref, q=qbd, PA=PA)
-#        if profile == 'gaussian':
-#            clump_im = sbmxb*sf.gauss2d(np.arange(dim),np.arange(dim),sig,sig,xcenter=xcb,ycenter=ycb,q=q,PA=PA,unity_height=True)
-#        elif profile == 'sersic':
-#            clump_im = sf.sersic2d(np.arange(dim),np.arange(dim),xcb,ycb,ie,re,nsers,q=qc,PA=PA)
-#        elif profile == 'eff':
-#            
-#        else:
-#            print("Invalid clump profile. Choose one of the following:")
-#            print("  gaussian/n sersic/n eff")
             gal_img += clump_im
-            rsarr[i] = rcpc
-            rbarr[i] = ref
+#            rsarr[i] = rcpc
+            rsarr[i] = px_to_pc(dcf, arcsec_per_px, zsim)/1000
+            rbarr[i] = px_to_pc(ref, arcsec_per_px, zsim)/1000#ref
             qbarr[i] = qbd
             iearr[i] = ied
             ycarr[i] = ycf
             xcarr[i] = xcf
             paarr[i] = PA
-#        print "dist"
-#        plt.hist(rsarr, bins=50)
-#        plt.show()
-#        plt.close()
-#        print "rad"
-#        plt.hist(rbarr, bins=50)
-#        plt.show()
-#        plt.close()
-#        print "q"
-#        plt.hist(qbarr, bins=50)
-#        plt.show()
-#        plt.close()
-#        print "int"
-#        plt.hist(iearr, bins=50)
-#        plt.show()
-#        plt.close()
-#        print qgal
-#        plt.imshow(gal_img, interpolation='none')
-#        plt.show()
-#        plt.close()
-    ### For now, also applying poisson noise on arbitrary scale
-    gal_cpy = 1.0*gal_img
-    gal_img = np.random.poisson(gal_img*1000)/1000
-    noise_p = gal_cpy-gal_img
+        ### Manually check various distributions
+        if plot_results:
+            print "q clump"
+            drng = np.linspace(QBE.data.min(),QBE.data.max(),100)
+            dpdf = QBE.dist(QBE.paramarray, drng)
+            plt.plot(drng,dpdf,'k',linewidth=2)
+            plt.hist(qbarr, bins=14, normed=True)
+            plt.show()
+            plt.close()
+            print "I, r, d"
+            plot_1d_projections(IRD,alt_data=np.vstack((rbarr, iearr, rsarr)), use_array=True)
+            plt.imshow(gal_img, interpolation='none')
+            plt.show()
+            plt.close()
+    ### Option to apply poisson noise on user set scale
+#    gal_cpy = 1.0*gal_img
+#    gal_img = np.random.poisson(gal_img*1000)/1000
+#    noise_p = gal_cpy-gal_img
 #    gal_img += np.random.poisson(bg*np.ones((gal_img.shape)))
 #    gal_img /= snr
     ### These error parameters are estimated
     mu_err = 0.16*np.max(gal_img)
     ### incompleteness estimate
-    bg_cut = 0.1*np.max(gal_img)
+#    bg_cut = 0.1*np.max(gal_img)
+    bg_cut = np.random.randn()*0.002 + 0.006
+    while bg_cut < 0.002 or bg_cut > 0.01:
+        bg_cut = np.random.randn()*0.002 + 0.006
+    print bg_cut
 #    print "% complete =", len(iearr[iearr>bg_cut])/len(iearr)
-    print "clumps detected =", len(iearr[iearr>bg_cut])
+    farr = eff_flux(np.sqrt(1/np.pi),iearr, rbarr)
+    print "clumps detected =", len(farr[farr>1.5*bg_cut]), "/", nclumps
     mu_err = 0.05*np.max(gal_img)
     mu_err = 0.1*np.max(gal_img)
 #    print mu_err/np.max(gal_img)
     std_err = mu_err/8
-    noise = std_err*np.random.randn(gal_img.size) + mu_err/3
+#    print std_err
+    std_err = np.random.randn()*bg_cut
+    noise = std_err*np.random.randn(gal_img.size)# + mu_err/3
     noise = np.reshape(noise,gal_img.shape)
 #    print np.max(noise)/np.max(gal_img)#, np.min(noise), np.max(gal_img), np.mean(gal_img)
     gal_img += noise
@@ -1292,7 +1387,7 @@ def make_sim_gal(clump_object_list, gal_object_list=None, dim=100, profile='sers
         hdulist.writeto('/home/matt/software/matttest/results/sim_gxy_{:03d}.fits'.format(save_idx),clobber=True)    
     
     if return_noise:
-        return gal_img, rcc, noise+noise_p
+        return gal_img, rcc, noise#+noise_p
     else:
         return gal_img, rcc, xycc
     
@@ -1702,11 +1797,22 @@ def fit_nd_dist(Pdf, index_cnt=None, method='lmfit', save_name=None, verbose=Fal
         if a save_name is included, will save the params object
     """
     x = Pdf.data
+    try:
+        invar = Pdf.invar
+    except:
+        invar = np.ones(x.shape)
     params_0 = Pdf.params
     paramarray = Pdf.paramarray
     param_bounds = Pdf.bounds
     normalized = Pdf.normalized
     func = Pdf.dist
+    ### right now kwargs is built exclusively for sf.gen_central2d
+    kwargs = dict()
+    try:
+        forms = Pdf.kwargs
+        kwargs['dists'] = forms
+    except:
+        forms = None
     if method == 'lmfit' or method == 'opt_minimize':
         pass
     else:
@@ -1719,7 +1825,7 @@ def fit_nd_dist(Pdf, index_cnt=None, method='lmfit', save_name=None, verbose=Fal
         if verbose:
             print("Fitting {} with {}".format(func.__name__,method))
     t0 = time.time()
-    def residuals_fct(params, x, func, method, normalized, index_cnt=None):
+    def residuals_fct(params, x, invar, func, method, normalized, kwargs, index_cnt=None):
         ndim = x.shape[0]
         if ndim > 3:
             print("warning: norm resolution very limited for high dimensional arrays")
@@ -1740,30 +1846,78 @@ def fit_nd_dist(Pdf, index_cnt=None, method='lmfit', save_name=None, verbose=Fal
             if func == sf.cauchy3_irq:
                 vals = func(params, x, normalized=normalized)
             else:
-                vals = func(params, x)
+                vals = func(params, x, **kwargs)
         if not normalized:
-            norm = get_norm(x, params, func)
+            norm = get_norm(x, params, func, kwargs=kwargs)
         else:
             norm = 1
 #        print params
-#        print norm
-        print np.prod(vals/norm)
+#        print vals
+#        print np.prod(vals/norm)
 #        print np.max(vals/norm)
-        rtn = -np.log(vals)+np.log(norm)
+#        rtn = -np.log(vals)+np.log(norm)#-np.log(invar)
+        rtn = (-np.log(vals)+np.log(norm))*(invar)
         if method == 'opt_minimize':
             rtn = np.sum(rtn)
+            if rtn == np.inf or rtn == np.nan:
+                rtn = 999
         elif method == 'lmfit':
             rtn = np.ravel(rtn)
         return rtn
+
+    def residuals_wrap(params, x, invar, func, method, normalized, kwargs, index_cnt=None):
+        """ wrapper around residuals_fct to sum multiple components
+        """
+#        n_combs = sp.binom(x.shape[0],2) ### mix of 2d funcs
+        ### Specific to 3 choose 2...opt_minimize, etc...
+        res = 0
+        mnr = params[0]
+        mni = params[1]
+        mnq = params[2]
+        scr = params[3]
+        sci = params[4]
+        scq = params[5]
+        th1 = params[6]
+        th2 = params[7]
+        th3 = params[8]
+        rpr, ipr, qpr = get_rots(x[0]-mnr, x[1]-mni, x[2]-mnq, th1, th2, th3)
+        vals = kwargs['dists']
+        for i in range(3):
+            if i == 0:
+                paramsn = np.array(([scr, sci]))
+                X = np.vstack((rpr,ipr))
+                W = np.vstack((invar[0], invar[1]))
+                kwtmp = dict()
+                kwtmp['dists'] = [vals[0], vals[1]]
+            elif i == 1:
+                paramsn = np.array(([sci, scq]))
+                X = np.vstack((ipr,qpr))
+                W = np.vstack((invar[1], invar[2]))
+                kwtmp = dict()
+                kwtmp['dists'] = [vals[1], vals[2]]
+            elif i == 2:
+                paramsn = np.array(([scr, scq]))
+                X = np.vstack((rpr,qpr))
+                W = np.vstack((invar[0], invar[2]))
+                kwtmp = dict()
+                kwtmp['dists'] = [vals[0], vals[2]]
+            rtmp = residuals_fct(paramsn, X, W, func, method, normalized, kwtmp)
+            res += rtmp
+#        print res
+        return res
+                              
     if method == 'lmfit':
         fit_kws = dict()
         fit_kws['maxfev'] = 4000
-        results = lmfit.minimize(residuals_fct,params_0,args=(x, func, method, normalized),**fit_kws)
+        results = lmfit.minimize(residuals_fct,params_0,args=(x, invar, func, method, normalized, kwargs),**fit_kws)
         fit_params = results.params
         t1 = time.time()
         print("Lmfit took {}s".format(t1-t0))
     elif method == 'opt_minimize':
-        res = opt.minimize(residuals_fct,paramarray,args=(x,func, method, normalized),bounds=param_bounds)
+        if func is sf.gen_central2d:
+            res = opt.minimize(residuals_wrap,paramarray,args=(x, invar, func, method, normalized, kwargs),bounds=param_bounds)
+        else:
+            res = opt.minimize(residuals_fct,paramarray,args=(x, invar,func, method, normalized, kwargs),bounds=param_bounds)
         fit_params = res.x
         t1 = time.time()
         if verbose:
@@ -1780,34 +1934,50 @@ def fit_nd_dist(Pdf, index_cnt=None, method='lmfit', save_name=None, verbose=Fal
         np.save('/home/matt/software/matttest/results/pdf_params_{}'.format(save_name), Pdf)
     return fit_params        
         
-def plot_1d_projections(Pdf, index_cnt=None, plot_2d=False, use_array=False):
+def plot_1d_projections(Pdf, index_cnt=None, plot_2d=False, use_array=False, alt_data=None):
     x = Pdf.data
+    if alt_data is not None:
+        x = alt_data
     if use_array:
         params = Pdf.paramarray
     else:
         params = Pdf.params
-    func = Pdf.dist
+    funcp = Pdf.dist
     ndim = x.shape[0]
     rscl = (np.sqrt((0.5)**(1/(1-3/2))-1)) ##convert a to r1/2
-    exptime = 626 #varies - need to key on this
+    exptime = 1#626 #varies - need to key on this
     photflam = 1.1845489#*10**-19 #constant
-    iscl = photflam/exptime*10**3 #*10**22 to get on scale [0, 1]
+    iscl = photflam/exptime#*10**19 to get on scale [0, 1]
     if ndim > 5: ## Assume needs to be transposed
         x = x.reshape((1,len(x)))
         ndim = 1
-    norm, mesh_arr, spacing, xaxes = get_norm(x, params, func, return_mesh=True, max_factor = 1)
+    kwargs = dict()
+    try:
+        forms = Pdf.kwargs
+        kwargs['dists'] = forms
+    except:
+        forms = None
+    if funcp == sf.gen_central2d:
+        func = sf.gen_central3d
+    else:
+        func = funcp
+    mf = 1.0
+    norm, mesh_arr, spacing, xaxes = get_norm(x, params, func, return_mesh=True, max_factor = mf, kwargs=kwargs)
     if type(func) == list:
         vals = np.ones((mesh_arr.shape[1:]))
         for j in range(len(func)):
             vals *= func[j](params, mesh_arr, index_cnt)
     else:
-        vals = func(params, mesh_arr, index_cnt)
+        vals = func(params, mesh_arr, index_cnt, **kwargs)
     vals /= norm
     for i in range(ndim):
         xaxis = xaxes[i]
         if ndim > 1:
-            names = ["$radius\ (kpc)$", "$flux\ (ergs/cm^{2}/s/\AA\ *\ 10^{22})$", "$axis\ ratio (b/a)$"]
-            snms = ["rad", "int", "ax_rat"]
+#            names = ["$radius\ (kpc)$", "$flux\ (ergs/cm^{2}/s/\AA\ *\ 10^{22})$", "$axis\ ratio (b/a)$"]
+#            snms = ["rad", "int", "ax_rat"]
+#            scl = [rscl, iscl, 1]
+            names = ["$r_c\ (kpc)$", "$i_c\ (ergs/cm^{2}/s/\AA/arcsec^2\ *\ 10^{15})$", "$d_c\ (kpc)$"]
+            snms = ["rad", "int", "dist"]
             scl = [rscl, iscl, 1]
             axes = np.arange(ndim)
             axes = tuple(axes[axes!=i])
@@ -1821,8 +1991,10 @@ def plot_1d_projections(Pdf, index_cnt=None, plot_2d=False, use_array=False):
 #                si = 0
             proj *= np.prod(sp_tmp)
         else:
-            names = ["$distance (kpc)$"]
-            snms = ["dist"]
+#            names = ["$distance (kpc)$"]
+#            snms = ["dist"]
+            names = ["$q_c\ (b/a)$"]
+            snms = ["ax_rat"]
             scl = [1]
             proj = vals.reshape((vals.size,))
 #            si = i
@@ -1833,13 +2005,15 @@ def plot_1d_projections(Pdf, index_cnt=None, plot_2d=False, use_array=False):
 #        xlab = raw_input("Enter xlabel name:")
         plt.xlabel(names[i], fontsize=20)
         plt.ylabel("$Probability$", fontsize=20)
-        plt.savefig('/home/matt/software/matttest/results/figs/{}_hist.pdf'.format(snms[i]))
+        plt.savefig('/home/matt/software/matttest/results/figs/{}_hist.pdf'.format(snms[i]), bbox_inches='tight')
         plt.show()
         plt.close()
     if plot_2d:
         num_plots = 0
-        names = ["$radius\ (kpc)$", "$flux\ (ergs/cm^{2}/s/\AA\ *\ 10^{22})$", "$axis\ ratio (b/a)$"]
-        snms = ["rad", "int", "ax_rat"]
+#        names = ["$radius\ (kpc)$", "$flux\ (ergs/cm^{2}/s/\AA\ *\ 10^{22})$", "$axis\ ratio (b/a)$"]
+#        snms = ["rad", "int", "ax_rat"]
+        names = ["$r_c\ (kpc)$", "$i_c\ (ergs/cm^{2}/s/\AA/asec^{2}\ *\ 10^{15})$", "$d_c\ (kpc)$"]
+        snms = ["rad", "int", "dist"]
         for i in range(ndim):
             num_plots += i
         if num_plots != 0:
@@ -1852,32 +2026,49 @@ def plot_1d_projections(Pdf, index_cnt=None, plot_2d=False, use_array=False):
                     if j == 0:
                         idx1 = 0
                         idx2 = 1
+                        axx = 2
+#                        tp = True
                     elif j == 1:
                         idx1 = 0
                         idx2 = 2
+                        axx = 1
+#                        tp = True
                     elif j == 2:
                         idx1 = 1
                         idx2 = 2
+                        axx = 0
+#                        tp = True
                     print("Plotting x[{}] vs x[{}]".format(idx1,idx2))
                     plt.plot(x[idx1], x[idx2], 'b.')
                     plt.xlabel(names[idx1], fontsize=20)
                     plt.ylabel(names[idx2], fontsize=20)
-                    img = np.sum(vals, axis = j)* spacing[j]
-                    plt.imshow(np.log(img[::-1,:]), extent=[np.min(x[idx1]), np.max(x[idx1]), np.min(x[idx1]), np.max(x[idx2])], interpolation='none')
+                    img = np.sum(vals, axis = axx)* spacing[j]
+                    xax = xaxes[idx1]
+                    yax = xaxes[idx2]
+#                    plt.plot(img[10,:])
+#                    plt.show()
+#                    plt.close()
+#                    plt.plot(img[:,10])
+#                    plt.show()
+#                    plt.close()
+                    implt = img.T
+                    plt.imshow(np.log(implt[::-1,:]), extent=[np.min(x[idx1]), np.max(x[idx1])*mf, np.min(x[idx1]), np.max(x[idx2])*mf], interpolation='none')
+#                    ax = plt.gca()
+#                    ax.pcolorfast(xax,yax,implt)
                     plt.savefig('/home/matt/software/matttest/results/figs/{}_vs_{}.pdf'.format(snms[idx1], snms[idx2]))
                     plt.show()
                     plt.close()
    
-def get_rot(x, y, thta):
-    cc = np.cos(thta)
-    ss = np.sin(thta)
-    R = np.array(([cc, -ss], [ss, cc]))
-#    Rrev = np.array(([cc, ss], [-ss, cc]))
-    Xin = np.vstack((x,y))#,re))
-    Xrot = np.dot(R,Xin)
-    xrot = Xrot[0]
-    yrot = Xrot[1]
-    return xrot, yrot
+#def get_rot(x, y, thta):
+#    cc = np.cos(thta)
+#    ss = np.sin(thta)
+#    R = np.array(([cc, -ss], [ss, cc]))
+##    Rrev = np.array(([cc, ss], [-ss, cc]))
+#    Xin = np.vstack((x,y))#,re))
+#    Xrot = np.dot(R,Xin)
+#    xrot = Xrot[0]
+#    yrot = Xrot[1]
+#    return xrot, yrot
      
 def min_rotation(x, y, thta0=0):
     """ find a theta value that minimizes Pearson's (linear) correlation
@@ -1997,12 +2188,12 @@ def pdf_param_guesses(name, idx=0, return_array=False):
         param_maxes = [mn+1, 10*scl]
         param_fixed = [1, 1]
     elif name == 'qb':
-        mn = 0.52
+        mn = 0.5
         scl = 0.2
         param_names = ['c{}'.format(idx), 's{}'.format(idx)]
         param_vals = [mn, scl]
-        param_mins = [mn-1, 0.1*scl]
-        param_maxes = [mn+1, 10*scl]
+        param_mins = [mn-0.4, 0.001*scl]
+        param_maxes = [mn+0.4, 100*scl]
         param_fixed = [1, 1]
     elif name == 're_rsep':
         k = 2
@@ -2064,11 +2255,66 @@ def pdf_param_guesses(name, idx=0, return_array=False):
         th1 = -0.27
         th2 = 0.051
         th3 = -0.075
+#        mnr = 0.25#*1.3
+#        mni = 0
+#        mnq = 0.5
+#        scr = 0.097#*1.3
+#        sci = 0.021#*2
+#        scq = 0.145
+#        th1 = np.pi/16
+#        th2 = np.pi/8
+#        th3 = np.pi/16
 #        gam = 1
         param_names = ['mnr', 'mni', 'mnq', 'scr', 'sci', 'scq', 'th1', 'th2', 'th3']#, 'gam']
         param_vals = [mnr, mni, mnq, scr, sci, scq, th1, th2, th3]#, gam]
-        param_mins = [mnr*0.5, mni-1, mnq*0.5, scr*0.01, sci*0.01, scq*0.1, -np.pi/4, -np.pi/4, -np.pi/4]#, 0.1]
-        param_maxes = [mnr*2, mni+0.2, mnq*4, scr*4, sci*4, scq*4, np.pi/4, np.pi/4, np.pi/4]#, 10]
+        param_mins = [mnr*0.5, mni-1, mnq*0.5, scr*0.01, sci*0.01, scq*0.1, -np.pi/4, -np.pi/4, -np.pi/4]
+        param_maxes = [mnr*2, 0.05, mnq*4, scr*4, sci*4, scq*4, np.pi/4, np.pi/4, np.pi/4]
+        param_fixed = np.ones((len(param_vals)))
+    elif name == 'ird':
+        ### Final
+        mnr = 0.15#0.214
+        mni = -0.127
+        mnd = 1.3
+        scr = 0.133#*1.3
+        sci = 0.0013#*2        
+        scd = 0.864
+        th1 = -0.005
+        th2 = -0.0044
+        th3 = -0.013
+        ### Div10
+#        mnr = 0.15
+#        mni = -0.15
+#        mnd = 1.3
+#        scr = 0.133#*1.3
+#        sci = 0.0013#*2        
+#        scd = 0.864
+#        th1 = -0.005
+#        th2 = -0.0044
+#        th3 = -0.013
+        ### Tim10
+#        mnr = 0.15#0.214
+#        mni = -0.127
+#        mnd = 1.3
+#        scr = 0.133#*1.3
+#        sci = 0.0013#*2        
+#        scd = 0.864
+#        th1 = -0.005
+#        th2 = -0.0044
+#        th3 = -0.013
+        ### Gaussian radius
+#        mnr = 0.054#*1.3
+#        mni = -0.14
+#        mnd = 1.34
+#        scr = 0.295#*1.3
+#        sci = 0.0013#*2        
+#        scd = 0.845
+#        th1 = -0.0058
+#        th2 = -0.0044
+#        th3 = -0.013
+        param_names = ['mnr', 'mni', 'mnd', 'scr', 'sci', 'scd', 'th1', 'th2', 'th3']#, 'gam']
+        param_vals = [mnr, mni, mnd, scr, sci, scd, th1, th2, th3]#, gam]
+        param_mins = [-mnr*10, mni-1, mnd*0.2, scr*0.1, 1e-21, scd*0.1, -np.pi/4, -np.pi/4, -np.pi/4]
+        param_maxes = [mnr*4, 0.5, mnd*4, scr*4, sci*10, scd*4, np.pi/4, np.pi/4, np.pi/4]
         param_fixed = np.ones((len(param_vals)))
     
     if return_array:
@@ -2083,11 +2329,10 @@ def pdf_param_guesses(name, idx=0, return_array=False):
 def resample(nb, re, ie, rsep, nsers, qb, PAb, Qgal, PAgal):
     """ resample with replacement for bootstrapping
     """
-    params = [nb, re, ie, rsep, nsers, qb, PAb, Qgal, PAgal]
-    new_params = []
-    for p in params:
-        rs = np.random.randint(len(p), size = (len(p),))
-        new_params += [p[rs]]
+#    params = [nb, re, ie, rsep, nsers, qb, PAb, Qgal, PAgal]
+    rs = np.random.randint(len(re), size = (len(re),))
+    rg = np.random.randint(len(nb), size = (len(nb),))
+    new_params = [nb[rg], re[rs], ie[rs], rsep[rs], nsers[rs], qb[rs], PAb[rs], Qgal[rg], PAgal[rg]]
     return new_params
     
 def circle_tophat(shape,center,radius):
@@ -2135,7 +2380,35 @@ def get_ew(filename,inds):
 #    plt.imshow(conv_img, interpolation='none')
 #    plt.show()
     cnt_uv = np.sum(conv_img*circle)
-    photflam = 1.1845489*10**(-19) #constant 
     fuv = cnt_uv*photflam
     print Flya/fuv
     return Flya/fuv
+    
+def calc_bb_array(ie, re):
+    return eff_flux(np.sqrt(1/np.pi),ie, re)
+    
+def calc_selection_fct(bb_array, trials=1000):
+    nc_mx = 10
+    sf_array = np.zeros((len(bb_array),nc_mx,2)) #nsample by nclumps by found
+    for i in range(trials):    
+        nclumps = int((10*np.random.rand()+1))
+        draws = np.floor(np.random.rand(nclumps)*len(bb_array)).astype(int)
+        ### append the "drawn" array
+        sf_array[draws,nclumps-1,1] += 1
+        bb_sub = bb_array[draws]
+        ### results are highly dependent on noise model...
+        noise_std = np.random.randn()*0.002 + 0.006
+#        noise = 0.0125*np.max(bb_sub)
+        bb_msk = bb_sub > noise_std
+        fnd = draws[bb_msk]
+        ### append the "found" array
+        sf_array[fnd,nclumps-1,0] += 1
+    return sf_array
+        
+def k_correction(z):
+    """ Assumes simple linear form for k-corrections based on literature...
+        van der Berg 2010, Figure 7
+    """
+    k_mag = (z-2.5)*(-0.1)
+    k_flx = 10**(-0.4*k_mag)
+    return k_flx

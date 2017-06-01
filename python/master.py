@@ -39,6 +39,21 @@ import mcmc_tools as mcmc
 import multiprocessing as mp
 #from multiprocessing import Pool, Process
 from matplotlib_scalebar.scalebar import ScaleBar
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument("-e","--evalfit",help="Extracts fitted blob values", action='store_true')
+parser.add_argument("-o","--overwrite",help="Overwrites existing fits for parameters", action='store_true')
+parser.add_argument("-p","--plotfit",help="Plots fitted values", action='store_true')
+parser.add_argument("-b","--bootstrap",help="Overwrites saved bootstrap", action='store_true')
+parser.add_argument("-s","--sim",help="Take inputs from simulated galaxies", action='store_true')
+parser.add_argument("-t","--blob_type",help="SB profile model for clumps/blobs", default='eff')
+parser.add_argument("-k","--kw_extra",help="append param_kw for special cases", default='')
+args_in = parser.parse_args()
+blob_type = args_in.blob_type
+kw_extra = args_in.kw_extra
+if kw_extra is not '':
+    kw_extra = '_' + kw_extra
 
 try:
     hst_dir = os.environ['HST_DIR']
@@ -50,12 +65,14 @@ cycle = '23'
 program = '14189'
 root = os.path.join(hst_dir,cycle,program)
 ### make list of filenames
-filenames = [f for f in glob.glob(os.path.join(root,'*','*SIE*pix.fits')) if not 'sersic' in f and not 'SLACS' in f]
+if kw_extra == '':
+    filenames = [f for f in glob.glob(os.path.join(root,'*','*SIE*pix.fits')) if not 'sersic' in f and not 'SLACS' in f and not 'div' in f and not 'tim' in f]
+elif kw_extra == 'div10':
+    filenames = [f for f in glob.glob(os.path.join(root,'*','*SIE*pix_div10.fits')) if not 'sersic' in f and not 'SLACS' in f]
+elif kw_extra == 'tim10':
+    filenames = [f for f in glob.glob(os.path.join(root,'*','*SIE*pix_tim10.fits')) if not 'sersic' in f and not 'SLACS' in f]
 if False:
     filenames = [f for f in glob.glob(os.path.join(root,'*','*sersic*.fits')) if not 'pix' in f and not 'SLACS' in f]
-f1 = '/home/matt/data/hst_lens/23/14189/08/SDSSJ085621.59+201040.5_sersic_SIE_pix.fits'
-f1 = '/home/matt/data/hst_lens/23/14189/08/SDSSJ085621.59+201040.5_source_pix_reg46.fits'
-fits1 = pyfits.open(f1)
 
 #img = fits1[4].data
 #plt.imshow(img)
@@ -72,6 +89,26 @@ vlims = [0, 0.2] ### set common limits on intensity in images
 #ys = sf.gauss_draw(n=n, params = np.array(([0.2, 0.5])), lims=ylims)
 #plt.hist(ys, normed=True, bins = 100)
 #plt.show()
+
+### Test bias on sigma from gaussian
+#trials = 1000
+#sig_ns = np.zeros((trials))
+#for i in range(trials):
+#    nt = 10000
+#    xar = np.linspace(-3,3,nt)
+#    ys = sf.gaussian(xar, 1)
+#    yar = np.random.randn(nt)
+#    ns = 0.6*np.random.randn(nt)
+#    dat = yar + ns
+#    mnd = np.sum(dat)/nt
+#    sig_emp = (1/(nt-1))*np.sum((dat-mnd)**2)
+#    sig_ns[i] = np.sqrt(abs(sig_emp-nt/(nt-1)))
+#print np.mean(sig_ns)
+##plt.ion()
+##plt.hist(dat, min(nt/10,100), normed = True)
+##plt.plot(xar, ys, 'k')
+##plt.show()
+#exit(0)
 
 ### Test correlations
 #def bi_modal_gauss(n=1,frac=0.5,mu1=0.5,mu2=0.2,sig1=0.07,sig2=0.07):
@@ -136,9 +173,9 @@ vlims = [0, 0.2] ### set common limits on intensity in images
 
 ### 0
 ### Set profile
-param_kw = '_eff'
+param_kw = '_' + blob_type + kw_extra
 #param_kw='_sersic'
-blob_type = 'eff'
+#blob_type = 'eff'
 #blob_type = 'sersic'
 if blob_type == 'eff':
     gam_fixed = True
@@ -146,13 +183,27 @@ if blob_type == 'eff':
         param_kw += '_gam_free'
 
 #########################################################################
-### 1
+#########################################################################
+###
+###  11
+### 111
+###  11
+###  11
+###  11
+### 1111
+### 
+#########################################################################
+#########################################################################
 ### Load Fitted values (found using LAE.py)
-sim = False
+sim = args_in.sim
 if sim:
     filenames = np.loadtxt('/home/matt/software/matttest/results/sim_gxys/sim_gxys.txt', dtype=str)
-else:
+elif kw_extra == '':
     filenames = np.loadtxt('/home/matt/software/matttest/data/pix_source_models.txt', dtype=str)
+elif kw_extra == '_div10':
+    filenames = np.loadtxt('/home/matt/software/matttest/data/pix_source_models_div10.txt', dtype=str)
+elif kw_extra == '_tim10':
+    filenames = np.loadtxt('/home/matt/software/matttest/data/pix_source_models_tim10.txt', dtype=str)
     
 #src.source_mosaic(filenames, vlims=vlims)
 #exit(0)    
@@ -164,7 +215,7 @@ else:
 #exit(0)
   
 logscale = False
-overwrite1 = False
+overwrite1 = args_in.evalfit
 #############################################################################
 '''
 lum = True
@@ -198,21 +249,30 @@ exit(0)
 
 if os.path.isfile('/home/matt/software/matttest/results/fitted_clump_values{}_{}.npy'.format(param_kw,"log" if logscale else "lin")) and not overwrite1 and not sim:
     fname = '/home/matt/software/matttest/results/fitted_clump_values{}_{}.npy'.format(param_kw,"log" if logscale else "lin")
-    [nb, re, ie, rsep, nsers, qb, PAb, Qgal, PAgal] = np.load(fname)
+    [nb, re, ie, rsep, nsers, qb, PAb, Qgal, PAgal, rpx] = np.load(fname)
 elif os.path.isfile('/home/matt/software/matttest/results/sim_clump_values{}_{}.npy'.format(param_kw,"log" if logscale else "lin")) and not overwrite1 and sim:
     fname = '/home/matt/software/matttest/results/sim_clump_values{}_{}.npy'.format(param_kw,"log" if logscale else "lin")
-    [nb, re, ie, rsep, nsers, qb, PAb, Qgal, PAgal] = np.load(fname)
+    [nb, re, ie, rsep, nsers, qb, PAb, Qgal, PAgal, rpx] = np.load(fname)
 else:
     centroids, qgals, PAgals = src.get_centroids(filenames, use_model=True, return_axis_ratio=True, param_kw=param_kw)
-    nb, re, ie, rsep, nsers, qb, PAb, Qgal, PAgal = src.import_fitted_blob_values(plot_dists=True,centroids=centroids, qgal=qgals, PAgal=PAgals, logscale=logscale, bins=14, param_kw=param_kw,sim=sim)
+    print "Importing fitted blob values"
+    nb, re, ie, rsep, nsers, qb, PAb, Qgal, PAgal, rpx = src.import_fitted_blob_values(plot_dists=True,centroids=centroids, qgal=qgals, PAgal=PAgals, logscale=logscale, bins=14, param_kw=param_kw,sim=sim)
     if sim:
-        np.save('/home/matt/software/matttest/results/sim_clump_values{}_{}.npy'.format(param_kw,"log" if logscale else "lin"), [nb, re, ie, rsep, nsers, qb, PAb, Qgal, PAgal])
+        np.save('/home/matt/software/matttest/results/sim_clump_values{}_{}.npy'.format(param_kw,"log" if logscale else "lin"), [nb, re, ie, rsep, nsers, qb, PAb, Qgal, PAgal, rpx])
     else:
-        np.save('/home/matt/software/matttest/results/fitted_clump_values{}_{}.npy'.format(param_kw,"log" if logscale else "lin"), [nb, re, ie, rsep, nsers, qb, PAb, Qgal, PAgal])
+        np.save('/home/matt/software/matttest/results/fitted_clump_values{}_{}.npy'.format(param_kw,"log" if logscale else "lin"), [nb, re, ie, rsep, nsers, qb, PAb, Qgal, PAgal, rpx])
 
-if overwrite1 == False:
+if overwrite1 == True:
+    plt.close()
+    plt.close()
     plt.close()
 ie = ie.astype(float)
+
+
+### Load "true" sim values for comparison
+exact = True # use exact values from input simulations, rather than fitted
+if sim and exact:
+    re, rpx, rsep, ie, qb = src.import_sim_blob_values(filenames)
 
 #exit(0)
 if logscale:
@@ -229,10 +289,71 @@ if use_qb_mask:
     nsers = nsers[qbm]
     qb = qb[qbm]
     PAb = PAb[qbm]
+    
+use_re_mask = False
+if use_re_mask:
+    rem = re < 1
+    ie = ie[rem]
+    re = re[rem]
+    rpx = rpx[rem]
+    rsep = rsep[rem]
+    nsers = nsers[rem]
+    qb = qb[rem]
+    PAb = PAb[rem]
 
 #############################################################################
 ######## Space for testing various other functions ##########################
 #############################################################################
+#'''
+### Selection function
+trials = 1000000
+bb_array = src.calc_bb_array(ie, rpx)  
+sf_array = src.calc_selection_fct(bb_array, trials=1000)
+#try:
+#    pcnts_array = (sf_array[:,:,0]/sf_array[:,:,1])
+#except:
+#    print "need more trials"
+pcnts_total = (np.sum(sf_array,axis=1)[:,0]/np.sum(sf_array,axis=1)[:,1])
+#bmsh = (bb_array >0.00063) * (bb_array < 0.00065)
+#bmsh = (bb_array >0.00395) * (bb_array < 0.00397)
+#sf1 = sf_array[np.argmax(bmsh)]
+#print sf1
+#print sf1[:,0]/sf1[:,1]
+#plt.plot(sf1[:,0]/sf1[:,1])
+#plt.show()
+#plt.plot(bb_array, pcnts_total, 'k.')
+#plt.show()
+#exit(0)
+
+bad_find_msk = pcnts_total < 0.01 ## cut out anything below 1% as unlikely to have been found originally...
+weights = 1/pcnts_total
+weights[weights > 100] = 100
+weights[weights == np.inf] = 100
+weights[weights == 0] = 1
+if kw_extra != '':
+    weights = np.ones(weights.shape)#*0.01
+#weights[1] = 1000
+copies = weights.astype(int)
+rextra = np.array(([]))#np.zeros((np.sum(copies)-len(copies)))
+iextra = np.array(([]))#np.zeros((np.sum(copies)-len(copies)))
+dextra = np.array(([]))
+for i in range(len(copies)):
+    if copies[i] > 1:
+        rextra = np.append(rextra,np.ones((copies[i]-1))*re[i])
+        iextra = np.append(iextra,np.ones((copies[i]-1))*ie[i])
+        dextra = np.append(dextra,np.ones((copies[i]-1))*rsep[i])
+rtot = np.append(re,rextra)
+itot = np.append(ie,iextra)
+dtot = np.append(rsep,dextra)
+#plt.hist(rtot,20)
+#plt.show()
+#plt.hist(itot,20)
+#plt.show()
+#plt.hist(dtot,20)
+#plt.show()
+#exit(0)
+#'''
+
 '''
 ### Luminosity distributions (need to actuall use correct z)
 ### May also be good to do by galaxy to compare to literature
@@ -273,124 +394,18 @@ plt.show()
 exit(0)
 #'''
 
-#############################################################################
-### TRYING 2D FITTING METHOD...
-#'''
-
-#def func(params, x):#, dist='gaussian'):
-#    dist = 'gaussian'
-#    xc = params[0]
-#    sc = params[1]
-#    if dist == 'gaussian':
-#        print 'gauss'
-#        return np.exp(-(x-xc)**2/(2*sc**2))
-#    elif dist == 'cauchy':
-#        print 'cauchy'
-#        return 1/(1+(x-xc)**2/sc**2)
-#        
-#def find_norm(params, x, kwargs=dict()):
-#    spacing = x[1]-x[0] ### assume even...
-#    val = func(params,x,**kwargs)
-#    return np.sum(val)*spacing
-#    
-#x = np.linspace(-1000,1000,10000)
-#params = np.array(([0.2, 0.8]))    
-#kwargs = dict()
-##kwargs['dist'] = 'cauchy'
-#norm = find_norm(params, x, kwargs)
-#print "Gaussian if 1:", norm/np.sqrt(2*np.pi*params[1]**2)
-#print "Cauchy if 1:", norm/(np.pi*params[1])
-#exit(0)
-    
-### Test on q, re
-#params = np.array(([0.253, 0.48, 0.1, 0.15, -np.pi/6]))
-params = np.array(([0.26, 0.482, 0.232, 0.2135, 0])) #re, qb #-0.8
-pmin = np.array(([0.1, 0.4, 0.05, 0.05, -np.pi/4]))
-pmax = np.array(([0.5, 0.8, 1, 1, np.pi/4]))
-bounds = np.vstack((pmin, pmax)).T
-#params = np.array(([0.26, 0, 0.232, 0.1135, 0])) #re, ie
-#pmin = np.array(([0.1, -0.6, 0.05, 0.005, -np.pi/4]))
-#pmax = np.array(([0.8, 0.2, 1, 0.3, np.pi/4]))
-#bounds = np.vstack((pmin, pmax)).T
-#params = np.array(([-0.2, 0.5, 0.1, 0.2135, 0])) #ie, qb
-#pmin = np.array(([-0.6, 0.01, 0.005, 0.05, -1000]))
-#pmax = np.array(([0.2, 0.7, 0.4, 0.4, 1000]))
-#bounds = np.vstack((pmin, pmax)).T
-
-dists=['gaussian','cauchy']
-#X = np.array(([re, qb]))
-#qb = ie
-X = np.vstack((re, qb))
-x, y = np.meshgrid(np.linspace(np.min(re),np.max(re),100), np.linspace(np.min(qb),np.max(qb),100))
-Xim = np.array(([x, y]))
-#lims = [np.min(x), np.max(x), np.min(y), np.max(y)]
-#imgr = sf.gen_gauss2d(params, X, idx=0, lims=None, rots=True)
-#norm = src.get_norm(X, params, sf.gen_gauss2d)
-img = sf.gen_central2d(params, Xim, idx=0, lims=None, dists=['gaussian','cauchy'])
-#print np.min(img)
-#exit(0)
-plt.imshow(img, extent=[np.min(re), np.max(re), np.max(qb), np.min(qb)])
-plt.plot(re, qb, 'b.')
-ax = plt.gca()
-ax.invert_yaxis
-plt.show()
-plt.close()
-#rproj = np.sum(img,axis=0)
-#rarr = np.linspace(np.min(re),np.max(re),len(rproj))
-#rproj /= np.sum(rproj)*(rarr[1]-rarr[0])
-#qproj = np.sum(img,axis=1)
-#qarr = np.linspace(np.min(qb),np.max(qb),len(qproj))
-#qproj /= np.sum(qproj)*(qarr[1]-qarr[0])
-#plt.hist(re,bins=14,normed=True)
-#plt.plot(np.linspace(np.min(re),np.max(re),len(rproj)),rproj)
-#plt.show()
-#plt.close()
-#plt.hist(qb,bins=14,normed=True)
-#plt.plot(np.linspace(np.min(qb),np.max(qb),len(qproj)),qproj)
-#plt.show()
-#plt.close()
-
-
-Test = src.Pdf_info('fit_test')
-Test.add_data(X, sf.gen_central2d, normalized=False)#, dists=['cauchy','cauchy'])
-Test.add_paramarray(params, bounds)
-Test.add_params(params)
-
-fit_params = src.fit_nd_dist(Test, index_cnt=0, method='opt_minimize')
-fit_params2 = mcmc.run_emcee(params, pmin, pmax, X, form=dists, plot_samples=True)
-print fit_params
-print fit_params2
-new_params = np.array(([fit_params2[i][0] for i in range(len(fit_params2))]))
-    #    quant.params = fit_params
-#        if plot:
-#            src.plot_1d_projections(quant, index_cnt=index_cnt, plot_2d=True, use_array=True)
-
-img = sf.gen_central2d(new_params, Xim, idx=0, lims=None, dists=['gaussian','cauchy'])
-plt.imshow(img, extent=[np.min(re), np.max(re), np.max(qb), np.min(qb)])
-ax = plt.gca()
-ax.invert_yaxis
-plt.plot(re, qb, 'b.')
-plt.show()
-plt.close()
-
-rproj = np.sum(img,axis=0)
-rarr = np.linspace(np.min(re),np.max(re),len(rproj))
-rproj /= np.sum(rproj)*(rarr[1]-rarr[0])
-qproj = np.sum(img,axis=1)
-qarr = np.linspace(np.min(qb),np.max(qb),len(qproj))
-qproj /= np.sum(qproj)*(qarr[1]-qarr[0])
-plt.hist(re,bins=14,normed=True)
-plt.plot(np.linspace(np.min(re),np.max(re),len(rproj)),rproj)
-plt.show()
-plt.close()
-plt.hist(qb,bins=14,normed=True)
-plt.plot(np.linspace(np.min(qb),np.max(qb),len(qproj)),qproj)
-plt.show()
-plt.close()
-exit(0)
-#'''
 #########################################################################
-### 2
+#########################################################################
+###
+###  222
+### 22 22
+###    22
+###   22
+###  22
+### 222222
+###
+#########################################################################
+#########################################################################
 ### Turn into Pdf_info objects (single or joint as needed) and fit
 ### for parameters.  Specify initial parameters on source_utils.pdf_param_guesses
 
@@ -415,15 +430,6 @@ if blob_type == 'sersic':
     QBS.add_data(qb, sf.cauchy_lmfit, normalized=False)
     RCS = src.Pdf_info('rsep')
     RCS.add_data(rsep, sf.weibull_lmfit, normalized=True)
-#    RE = src.Pdf_info('re')
-#    RE.add_data(re, sf.weibull_lmfit)
-#    RE.add_dependence(RC)
-#    NS = src.Pdf_info('nsers_re') #P(nsers|re)
-#    NS.add_data(nsers, sf.weibull_lmfit)
-#    NS.add_dependence(RB)
-#    IE = src.Pdf_info('ie_nsers') #P(ie|nsers)
-#    IE.add_data(ie, sf.exponential_lmfit)
-#    IE.add_dependence(NS)
     Sersic = src.Pdf_info('ie_re_nsers_comb')
     ### Right now I have to make special functions for each shape, can't think of a 
     ### more general way to cover all cases :(
@@ -431,8 +437,6 @@ if blob_type == 'sersic':
     recut = re[re<rmx]
     iecut = ie[re<rmx]
     nserscut = nsers[re<rmx]
-#    Sersic.add_data(np.vstack((recut,iecut,nserscut)),[sf.gaussian_re_lmfit, sf.exponential_ie_lmfit, sf.gaussian_nsers_lmfit])
-#    Sersic.add_data(np.vstack((recut,iecut,nserscut)),[sf.cauchy_re_lmfit, sf.exponential_ie_lmfit, sf.weibull_nsers_lmfit])
     Sersic.add_data(np.vstack((recut,iecut,nserscut)),sf.gauss3_irn, normalized=False)
 #    dists = [RC, Sersic]
     dists = [QGS, QBS, RCS, Sersic]
@@ -441,20 +445,39 @@ elif blob_type == 'eff':
     NBE.add_data(nb,np.random.uniform)
     QGE = src.Pdf_info('qgale')
     QGE.add_data(Qgal,np.random.uniform)
-#    QBE = src.Pdf_info('qb')
-#    QBE.add_data(qb, sf.cauchy_lmfit_trunc)
-    RCE = src.Pdf_info('rsepe')
-    RCE.add_data(rsep, sf.weibull_lmfit, normalized=True)
+    QBE = src.Pdf_info('qb')
+#    if kw_extra == '':
+    QBE.add_data(qb, sf.cauchy_lmfit_trunc)#, normalized=False)
+#    el:
+#        QBE.add_data(qb, sf.gaussian_lmfit_trunc) #for div10
+    if sim:
+        QBE.add_invar(np.ones(qb.shape))
+    else:
+        QBE.add_invar(weights)
+#    RCE = src.Pdf_info('rsepe')
+#    RCE.add_data(rsep, sf.weibull_lmfit, normalized=True)
 #    IOE = src.Pdf_info('io')
 #    IOE.add_data(ie, sf.exponential_lmfit)
 #    RSE = src.Pdf_info('a')
 #    RSE.add_data(re, sf.gaussian_lmfit)
-    EFF = src.Pdf_info('eff_joint')
-    EFF.add_data(np.vstack((re, ie, qb)), sf.cauchy3_irq, normalized=False)
+#    EFF = src.Pdf_info('eff_joint')
+##    EFF.add_data(np.vstack((re, ie, qb)), sf.cauchy3_irq, normalized=False)
+#    EFF.add_data(np.vstack((re, ie, qb)), sf.gen_central2d, normalized=False)
+#    EFF.add_kwargs(['cauchy','cauchy','cauchy']) ### distribution for each...
+    IRD = src.Pdf_info('ird')
+    IRD.add_data(np.vstack((re, ie, rsep)), sf.gen_central2d, normalized=False)
+#    IRD.add_data(np.vstack((rtot, itot, dtot)), sf.gen_central2d, normalized=False)
+    if sim:
+        IRD.add_invar(np.vstack((np.ones(re.shape), np.ones(ie.shape), np.ones(rsep.shape))))
+    else:
+        IRD.add_invar(np.vstack((weights,weights,weights)))
+    IRD.add_kwargs(['cauchy','cauchy','gaussian'])
     if not gam_fixed:
         GAM = src.Pdf_info('gamma')
         GAM.add_data(nsers, sf.gaussian_lmfit)
-    dists = [RCE, EFF]
+#    dists = [RCE, EFF]
+    dists = [QBE, IRD]
+#    dists = [IRD]
 
 #dists = [RC, LogIE, NS, LogRE]
 #dists = [RC, Sersic]
@@ -465,11 +488,11 @@ def find_dist_params(dists, overwrite=False, bootstrap=False, plot=False, sim=Fa
         dists = [dists]
     for quant in dists:
         if not bootstrap:
-            if os.path.isfile('/home/matt/software/matttest/results/pdf_params_{}.npy'.format(quant.name)) and not overwrite:
+            if os.path.isfile('/home/matt/software/matttest/results/pdf_params_{}{}.npy'.format(quant.name, kw_extra)) and not overwrite:
                 if sim:
                     qq = np.load('/home/matt/software/matttest/results/sim_params_{}.npy'.format(quant.name))[()]    
                 else:
-                    qq = np.load('/home/matt/software/matttest/results/pdf_params_{}.npy'.format(quant.name))[()]
+                    qq = np.load('/home/matt/software/matttest/results/pdf_params_{}{}.npy'.format(quant.name, kw_extra))[()]
                 dists[idx] = qq
         #        src.plot_1d_projections(qq, index_cnt=0, plot_2d=True, use_array=True)
                 idx += 1
@@ -479,11 +502,14 @@ def find_dist_params(dists, overwrite=False, bootstrap=False, plot=False, sim=Fa
             pa, bnds = src.pdf_param_guesses(quant.name, return_array=True)
             quant.add_paramarray(pa, bnds)
             index_cnt = 0
-        #    src.plot_1d_projections(quant, index_cnt=index_cnt, plot_2d=True)
+#            src.plot_1d_projections(quant, index_cnt=index_cnt, plot_2d=True, use_array=True)
             if sim:
-                fit_params = src.fit_nd_dist(quant, save_name = 'sim'+quant.name, index_cnt=index_cnt, method='opt_minimize')
+                fit_params = src.fit_nd_dist(quant, save_name = 'sim_'+quant.name, index_cnt=index_cnt, method='opt_minimize')
             else:
-                fit_params = src.fit_nd_dist(quant, save_name = quant.name, index_cnt=index_cnt, method='opt_minimize')
+                print "fitting:", quant.name
+                time.sleep(2)
+                fit_params = src.fit_nd_dist(quant, save_name = quant.name+kw_extra, index_cnt=index_cnt, method='opt_minimize')
+                print quant.paramarray
         else:
 #            params_0 = src.pdf_param_guesses(quant.name)
 #            quant.add_params(params_0)
@@ -491,6 +517,7 @@ def find_dist_params(dists, overwrite=False, bootstrap=False, plot=False, sim=Fa
 #            quant.add_paramarray(pa, bnds)
             index_cnt = 0
             fit_params = src.fit_nd_dist(quant, index_cnt=index_cnt, method='opt_minimize')
+#            print quant.paramarray
     #    quant.params = fit_params
         if plot:
             src.plot_1d_projections(quant, index_cnt=index_cnt, plot_2d=True, use_array=True)
@@ -501,49 +528,97 @@ def find_dist_params(dists, overwrite=False, bootstrap=False, plot=False, sim=Fa
 
 print "Running initial parameter fit"
 ### Normalized behavior for cauchy3_irq needs to be specially set within the function (for now)
-find_dist_params(dists, overwrite = True, plot=True, sim=sim)
+find_dist_params(dists, overwrite = args_in.overwrite, plot=args_in.plotfit, sim=sim)
 
 if blob_type == 'eff':
-    RCE = np.load('/home/matt/software/matttest/results/pdf_params_{}.npy'.format(RCE.name))[()]
-    EFF = np.load('/home/matt/software/matttest/results/pdf_params_{}.npy'.format(EFF.name))[()]
-    EFF.normalized = True ## For now, set to true for faster processing
+#    RCE = np.load('/home/matt/software/matttest/results/pdf_params_{}.npy'.format(RCE.name))[()]
+#    EFF = np.load('/home/matt/software/matttest/results/pdf_params_{}.npy'.format(EFF.name))[()]
+#    EFF.normalized = True ## For now, set to true for faster processing
+    if sim:
+        QBE = np.load('/home/matt/software/matttest/results/pdf_params_sim_{}.npy'.format(QBE.name))[()]
+        IRD = np.load('/home/matt/software/matttest/results/pdf_params_sim_{}.npy'.format(IRD.name))[()]
+    else:
+        QBE = np.load('/home/matt/software/matttest/results/pdf_params_{}{}.npy'.format(QBE.name,kw_extra))[()]
+        IRD = np.load('/home/matt/software/matttest/results/pdf_params_{}{}.npy'.format(IRD.name,kw_extra))[()]
+    
+
+
+#########################################################################
+#########################################################################
+###
+###  3333
+### 33  33
+###    33
+###  333 
+###    33
+### 33  33
+###  3333
+###
+#########################################################################
+#########################################################################
 
 ### Error analysis via Bootstrapping
 print "Running bootstrap (to estimate errors)"
 tb0 = time.time()
-overwriteb = False # overwrite bootstrap param files?
+overwriteb = args_in.bootstrap # overwrite bootstrap param files?
 if blob_type == 'eff':
     if sim:
-        frce = '/home/matt/software/matttest/results/sim_params_boot_{}.npy'.format(RCE.name)
-        feff = '/home/matt/software/matttest/results/sim_params_boot_{}.npy'.format(EFF.name)
+#        frce = '/home/matt/software/matttest/results/sim_params_boot_{}.npy'.format(RCE.name)
+#        feff = '/home/matt/software/matttest/results/sim_params_boot_{}.npy'.format(EFF.name)
+        fqbe = '/home/matt/software/matttest/results/sim_params_boot_{}.npy'.format(QBE.name)
+        fird = '/home/matt/software/matttest/results/sim_params_boot_{}.npy'.format(IRD.name)
     else:
-        frce = '/home/matt/software/matttest/results/pdf_params_boot_{}.npy'.format(RCE.name)
-        feff = '/home/matt/software/matttest/results/pdf_params_boot_{}.npy'.format(EFF.name)
-    if os.path.isfile(frce) and os.path.isfile(feff) and not overwriteb:
-        rce_params = np.load(frce)
-        eff_params = np.load(feff)
+#        frce = '/home/matt/software/matttest/results/pdf_params_boot_{}.npy'.format(RCE.name)
+#        feff = '/home/matt/software/matttest/results/pdf_params_boot_{}.npy'.format(EFF.name)
+        fqbe = '/home/matt/software/matttest/results/pdf_params_boot_{}{}.npy'.format(QBE.name,kw_extra)
+        fird = '/home/matt/software/matttest/results/pdf_params_boot_{}{}.npy'.format(IRD.name,kw_extra)
+#    if os.path.isfile(frce) and os.path.isfile(feff) and not overwriteb:
+#        rce_params = np.load(frce)
+#        eff_params = np.load(feff)
+    if os.path.isfile(fqbe) and os.path.isfile(fird) and not overwriteb:
+        qbe_params = np.load(fqbe)
+        ird_params = np.load(fird)
+#    else:
+#        nboot = 1000 #Set to 1000? - might need to parallelize...
+#        rce_params = np.zeros((2, nboot)) ### Weibull params
+#        eff_params = np.zeros((9, nboot)) ### Joint pdf params
+#        for bt in range(nboot):
+#            if bt%50 == 0:
+#                print("On bootstrap iteration {}/{}".format(bt,nboot))
+#            ### Resample all clump, galaxy parameters
+#            nbbs, rebs, iebs, rsepbs, nsersbs, qbbs, PAbb, Qgalbs, PAgalbs = src.resample(nb, re, ie, rsep, nsers, qb, PAb, Qgal, PAgal)
+#            RCE.data = rsepbs.reshape(1,len(rsepbs))
+#            EFF.data = np.vstack((rebs, iebs, qbbs))
+#            rce_params[:, bt] = find_dist_params(RCE, bootstrap=True)
+#            eff_params[:, bt] = find_dist_params(EFF, bootstrap=True)
     else:
         nboot = 1000 #Set to 1000? - might need to parallelize...
-        rce_params = np.zeros((2, nboot)) ### Weibull params
-        eff_params = np.zeros((9, nboot)) ### Joint pdf params
+        qbe_params = np.zeros((2, nboot)) ### Weibull params
+        ird_params = np.zeros((9, nboot)) ### Joint pdf params
         for bt in range(nboot):
             if bt%50 == 0:
                 print("On bootstrap iteration {}/{}".format(bt,nboot))
             ### Resample all clump, galaxy parameters
             nbbs, rebs, iebs, rsepbs, nsersbs, qbbs, PAbb, Qgalbs, PAgalbs = src.resample(nb, re, ie, rsep, nsers, qb, PAb, Qgal, PAgal)
-            RCE.data = rsepbs.reshape(1,len(rsepbs))
-            EFF.data = np.vstack((rebs, iebs, qbbs))
-            rce_params[:, bt] = find_dist_params(RCE, bootstrap=True)
-            eff_params[:, bt] = find_dist_params(EFF, bootstrap=True)
+            QBE.data = qbbs.reshape(1,len(qbbs))
+            IRD.data = np.vstack((rebs, iebs, rsepbs))
+            qbe_params[:, bt] = find_dist_params(QBE, bootstrap=True)
+            ird_params[:, bt] = find_dist_params(IRD, bootstrap=True)
     
 tbf = time.time()
 if blob_type == 'eff':
+#    if sim:
+#        np.save('/home/matt/software/matttest/results/sim_params_boot_{}.npy'.format(RCE.name),rce_params)
+#        np.save('/home/matt/software/matttest/results/sim_params_boot_{}.npy'.format(EFF.name),eff_params)
+#    else:
+#        np.save('/home/matt/software/matttest/results/pdf_params_boot_{}.npy'.format(RCE.name),rce_params)
+#        np.save('/home/matt/software/matttest/results/pdf_params_boot_{}.npy'.format(EFF.name),eff_params)
     if sim:
-        np.save('/home/matt/software/matttest/results/sim_params_boot_{}.npy'.format(RCE.name),rce_params)
-        np.save('/home/matt/software/matttest/results/sim_params_boot_{}.npy'.format(EFF.name),eff_params)
+        np.save('/home/matt/software/matttest/results/sim_params_boot_{}.npy'.format(QBE.name),qbe_params)
+        np.save('/home/matt/software/matttest/results/sim_params_boot_{}.npy'.format(IRD.name),ird_params)
     else:
-        np.save('/home/matt/software/matttest/results/pdf_params_boot_{}.npy'.format(RCE.name),rce_params)
-        np.save('/home/matt/software/matttest/results/pdf_params_boot_{}.npy'.format(EFF.name),eff_params)
+        np.save('/home/matt/software/matttest/results/pdf_params_boot_{}{}.npy'.format(QBE.name,kw_extra),qbe_params)
+        np.save('/home/matt/software/matttest/results/pdf_params_boot_{}{}.npy'.format(IRD.name,kw_extra),ird_params)
 print "Bootstrap time =", tbf-tb0
 #for k in range(2):
 #    plt.plot(rce_params[k,:],'k.')
@@ -580,30 +655,67 @@ def bootstrap_errs(bootstrap_params,low=16,high=84, true_params=None):
     return errs
         
 if blob_type == 'eff':
-    rce_params_errs = bootstrap_errs(rce_params, true_params=RCE.paramarray)
-    eff_params_errs = bootstrap_errs(eff_params, true_params=EFF.paramarray)
+#    rce_params_errs = bootstrap_errs(rce_params, true_params=RCE.paramarray)
+#    eff_params_errs = bootstrap_errs(eff_params, true_params=EFF.paramarray)
+#    if sim:
+#        np.save('/home/matt/software/matttest/results/sim_params_final_{}.npy'.format(RCE.name), rce_params_errs)
+#        np.save('/home/matt/software/matttest/results/sim_params_final_{}.npy'.format(EFF.name), eff_params_errs)
+#    else:
+#        np.save('/home/matt/software/matttest/results/pdf_params_final_{}.npy'.format(RCE.name), rce_params_errs)
+#        np.save('/home/matt/software/matttest/results/pdf_params_final_{}.npy'.format(EFF.name), eff_params_errs)
+    qbe_params_errs = bootstrap_errs(qbe_params, true_params=QBE.paramarray)
+    ird_params_errs = bootstrap_errs(ird_params, true_params=IRD.paramarray)
     if sim:
-        np.save('/home/matt/software/matttest/results/sim_params_final_{}.npy'.format(RCE.name), rce_params_errs)
-        np.save('/home/matt/software/matttest/results/sim_params_final_{}.npy'.format(EFF.name), eff_params_errs)
+        np.save('/home/matt/software/matttest/results/sim_params_final_{}.npy'.format(QBE.name), qbe_params_errs)
+        np.save('/home/matt/software/matttest/results/sim_params_final_{}.npy'.format(IRD.name), ird_params_errs)
     else:
-        np.save('/home/matt/software/matttest/results/pdf_params_final_{}.npy'.format(RCE.name), rce_params_errs)
-        np.save('/home/matt/software/matttest/results/pdf_params_final_{}.npy'.format(EFF.name), eff_params_errs)
+        np.save('/home/matt/software/matttest/results/pdf_params_final_{}{}.npy'.format(QBE.name,kw_extra), qbe_params_errs)
+        np.save('/home/matt/software/matttest/results/pdf_params_final_{}{}.npy'.format(IRD.name,kw_extra), ird_params_errs)
 
 #print rce_params_errs
 #print eff_params_errs
 #exit(0)
 
+#########################################################################
+#########################################################################
+###
+###  44 44
+###  44 44
+###  44444
+###     44
+###     44
+###
+#########################################################################
+#########################################################################
+
+#print "Temporarily froze simulations - finish end to end analysis"
+#exit(0)
 ### Draw from the distributions above to create simulated galaxies
 if sim:
     exit(0) ## - don't re-make simulated galaxies
-dists = [RCE, EFF]
+qbf = np.load('/home/matt/software/matttest/results/sim_gxys/sim_params_final_qb_fit.npy')
+qbt = np.load('/home/matt/software/matttest/results/sim_gxys/sim_params_final_qb_true.npy')
+irdf = np.load('/home/matt/software/matttest/results/sim_gxys/sim_params_final_ird_fit.npy') 
+irdt = np.load('/home/matt/software/matttest/results/sim_gxys/sim_params_final_ird_true.npy')
+qbc = qbt[:,0] - qbf[:,0]
+irdc = irdt[:,0] - irdf[:,0]
+#dists = [RCE, EFF]
+dists = [QBE, IRD]
 if blob_type == 'eff':
     for Pdf in dists:
         if Pdf.name == 'rsepe':
             Pdf.add_draw(np.random.weibull)
         elif Pdf.name == 'eff_joint':
             Pdf.add_draw(np.array((3*[sf.cauchy_draw])))
-
+        elif Pdf.name == 'qb':
+#            Pdf.add_draw(sf.gauss_draw)
+            Pdf.add_draw(sf.cauchy_draw)
+        elif Pdf.name == 'ird':
+#            Pdf.add_draw(np.array(([sf.gauss_draw, sf.cauchy_draw, sf.gauss_draw])))
+            Pdf.add_draw(np.array(([sf.cauchy_draw, sf.cauchy_draw, sf.gauss_draw])))
+### Add bias correction estimates
+QBE.paramarray = QBE.paramarray + qbc
+IRD.paramarray = IRD.paramarray + irdc
 
 ##############################################################################
 '''
@@ -648,7 +760,7 @@ exit(0)
 #'''
 ##############################################################################
             
-n_gxys = 17
+n_gxys = 15
 #fig, ax = plt.subplots(5,4,sharex=True,sharey=True)
 #fig.subplots_adjust(wspace=0,hspace=0)
 #profile = 'sersic'
@@ -662,9 +774,10 @@ fig.subplots_adjust(wspace=0,hspace=0)
 qs = []
 save= True
 for i in range(n_gxys):
+    print "Making sim galaxy {}".format(i)
     i1 = int(np.mod(i,5))
     i2 = int(np.floor(i/5))
-    dim1 = 100
+    dim1 = 120
     fake_gal, qtmp, noise = src.make_sim_gal(dists, dim=dim, profile=profile, return_noise=True, save=save, save_idx=i)
     ### save for later analysis - overwrite every time right now...
     if not save:
@@ -686,12 +799,19 @@ for i in range(n_gxys):
     ax.yaxis.set_visible(False)
 #    vlims = None
     if vlims is None:
-        fake_gal[70:71,5:15] = np.max(fake_gal)
+#        fake_gal[70:71,5:15] = np.max(fake_gal)
         plt.imshow(fake_gal,interpolation='none',cmap=cm.hot)
     else:
-        fake_gal[70:71,5:15] = vlims[1]
+#        fake_gal[70:71,5:15] = vlims[1]
         plt.imshow(fake_gal,interpolation='none',cmap=cm.hot, vmin=vlims[0], vmax=vlims[1])
-    ax.text(4, 68, '0.1"', color='w', fontsize=6)
+    lf = src.px_to_pc(1000,0.01,2.5, inv=True)
+#    ax.text(4, 68, '0.1"', color='w', fontsize=6)
+    scalebar = ScaleBar(1, units='m', label='1 kpc',frameon=False,color='w', height_fraction = 0.002, length_fraction = 1/lf, location='lower left',font_properties=dict(size=8))
+    ax.add_artist(scalebar)
+    ax.spines['bottom'].set_color('white')
+    ax.spines['top'].set_color('white')
+    ax.spines['left'].set_color('white')
+    ax.spines['right'].set_color('white')
 #    ratio = (ax.get_xlim()[0]-ax.get_xlim()[1])/(ax.get_ylim()[1]-ax.get_ylim()[0])
 #    ax.set_aspect(1*ratio, adjustable='box')
 #    plt.show()

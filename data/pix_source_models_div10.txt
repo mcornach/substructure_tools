@@ -1,0 +1,17 @@
+/home/matt/data/hst_lens/23/14189/01/SDSSJ002927.38+254401.7_sersic_SIE_pix_div10.fits
+/home/matt/data/hst_lens/23/14189/03/SDSSJ011300.57+025046.2_sersic_two_SIE_pix_div10.fits
+/home/matt/data/hst_lens/23/14189/04/SDSSJ020121.39+322829.6_sersic_SIE_pix_div10.fits
+/home/matt/data/hst_lens/23/14189/05/SDSSJ023740.63-064112.9_sersic_SIE_pix_div10.fits
+/home/matt/data/hst_lens/23/14189/06/SDSSJ074249.68+334148.9_sersic_SIE_pix_div10.fits
+/home/matt/data/hst_lens/23/14189/07/SDSSJ075523.52+344539.5_sersic_SIE+shear_pix_div10.fits
+/home/matt/data/hst_lens/23/14189/08/SDSSJ085621.59+201040.5_sersic_SIE_pix_div10.fits
+/home/matt/data/hst_lens/23/14189/09/SDSSJ091807.86+451856.7_sersic_two_SIE_pix_div10.fits
+/home/matt/data/hst_lens/23/14189/10/SDSSJ091859.21+510452.5_sersic_SIE+shear_pix_div10.fits
+/home/matt/data/hst_lens/23/14189/11/SDSSJ111027.11+280838.4_sersic_SIE_pix_div10.fits
+/home/matt/data/hst_lens/23/14189/12/SDSSJ111040.42+364924.3_sersic_SIE_pix_div10.fits
+/home/matt/data/hst_lens/23/14189/13/SDSSJ111634.55+091503.0_sersic_SIE_pix_div10.fits
+/home/matt/data/hst_lens/23/14189/14/SDSSJ114154.71+221628.8_sersic_SIE_pix_div10.fits
+/home/matt/data/hst_lens/23/14189/15/SDSSJ120159.02+474323.1_sersic_SIE_pix_div10.fits
+/home/matt/data/hst_lens/23/14189/16/SDSSJ122656.45+545739.0_sersic_SIE+shear_pix_div10.fits
+/home/matt/data/hst_lens/23/14189/19/SDSSJ222825.76+120503.9_sersic_SIE_pix_div10.fits
+/home/matt/data/hst_lens/23/14189/21/SDSSJ234248.68-012032.5_sersic_SIE_pix_div10.fits

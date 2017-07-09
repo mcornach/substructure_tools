@@ -49,9 +49,13 @@ parser.add_argument("-b","--bootstrap",help="Overwrites saved bootstrap", action
 parser.add_argument("-s","--sim",help="Take inputs from simulated galaxies", action='store_true')
 parser.add_argument("-t","--blob_type",help="SB profile model for clumps/blobs", default='eff')
 parser.add_argument("-k","--kw_extra",help="append param_kw for special cases", default='')
+parser.add_argument("-x","--exact",help="use true/exact parameters from simulations", action='store_true')
+parser.add_argument("-c","--compare",help="look at sim bias-true", action='store_true')
 args_in = parser.parse_args()
 blob_type = args_in.blob_type
 kw_extra = args_in.kw_extra
+exact = args_in.exact
+compare = args_in.compare
 if kw_extra is not '':
     kw_extra = '_' + kw_extra
 
@@ -197,7 +201,13 @@ if blob_type == 'eff':
 ### Load Fitted values (found using LAE.py)
 sim = args_in.sim
 if sim:
-    filenames = np.loadtxt('/home/matt/software/matttest/results/sim_gxys/sim_gxys.txt', dtype=str)
+    ### Specially saved sim galaxies
+#    filenames = np.loadtxt('/home/matt/software/matttest/results/sim_gxys/sim_gxys.txt', dtype=str)
+    ### Readily updated sim galaxies
+    if exact:
+        filenames = np.loadtxt('/home/matt/software/matttest/results/sim_gxys.txt', dtype=str)
+    else:
+        filenames = np.loadtxt('/home/matt/software/matttest/results/sim_gxys_fit.txt', dtype=str)
 elif kw_extra == '':
     filenames = np.loadtxt('/home/matt/software/matttest/data/pix_source_models.txt', dtype=str)
 elif kw_extra == '_div10':
@@ -254,32 +264,66 @@ elif os.path.isfile('/home/matt/software/matttest/results/sim_clump_values{}_{}.
     fname = '/home/matt/software/matttest/results/sim_clump_values{}_{}.npy'.format(param_kw,"log" if logscale else "lin")
     [nb, re, ie, rsep, nsers, qb, PAb, Qgal, PAgal, rpx] = np.load(fname)
 else:
-    centroids, qgals, PAgals = src.get_centroids(filenames, use_model=True, return_axis_ratio=True, param_kw=param_kw)
+    use_model = False#not sim
+    if sim:
+        filenamesc = np.loadtxt('/home/matt/software/matttest/results/sim_gxys.txt', dtype=str)
+        centroids, qgals, PAgals = src.get_centroids(filenamesc, use_model=use_model, return_axis_ratio=True, param_kw=param_kw)
+    else:
+        return_rhalf = False
+        if return_rhalf:
+            rhalf = src.get_centroids(filenames, use_model=True, return_axis_ratio=False, param_kw=param_kw, return_rhalf=return_rhalf)
+            print rhalf
+            print np.median(rhalf)
+            plt.hist(rhalf)
+            plt.show()
+            exit(0)
+        else:
+            centroids, qgals, PAgals = src.get_centroids(filenames, use_model=use_model, return_axis_ratio=True, param_kw=param_kw)
+    ### Check nblobs with Icut
+#    nblobs = src.import_fitted_blob_values(filenames, plot_dists=True, centroids=centroids, qgal=qgals, PAgal=PAgals, logscale=logscale, bins=14, param_kw=param_kw,sim=sim, exact=exact, Icut=True)
+#    print nblobs
+#    print np.sum(nblobs)
+#    plt.hist(nblobs)
+#    plt.show()
+#    plt.close()
+#    exit(0)
     print "Importing fitted blob values"
-    nb, re, ie, rsep, nsers, qb, PAb, Qgal, PAgal, rpx = src.import_fitted_blob_values(plot_dists=True,centroids=centroids, qgal=qgals, PAgal=PAgals, logscale=logscale, bins=14, param_kw=param_kw,sim=sim)
+    nb, re, ie, rsep, nsers, qb, PAb, Qgal, PAgal, rpx = src.import_fitted_blob_values(filenames, plot_dists=True, centroids=centroids, qgal=qgals, PAgal=PAgals, logscale=logscale, bins=14, param_kw=param_kw,sim=sim, exact=exact)
+#    plt.hist(Qgal,bins=9)
+#    plt.show()
+#    plt.close()
     if sim:
         np.save('/home/matt/software/matttest/results/sim_clump_values{}_{}.npy'.format(param_kw,"log" if logscale else "lin"), [nb, re, ie, rsep, nsers, qb, PAb, Qgal, PAgal, rpx])
     else:
         np.save('/home/matt/software/matttest/results/fitted_clump_values{}_{}.npy'.format(param_kw,"log" if logscale else "lin"), [nb, re, ie, rsep, nsers, qb, PAb, Qgal, PAgal, rpx])
 
 if overwrite1 == True:
+    print "total number of clumps =", re.size
+    exit(0)
     plt.close()
     plt.close()
     plt.close()
+    plt.ioff()
 ie = ie.astype(float)
 
 
 ### Load "true" sim values for comparison
-exact = True # use exact values from input simulations, rather than fitted
-if sim and exact:
-    re, rpx, rsep, ie, qb = src.import_sim_blob_values(filenames)
+#exact = True # use exact values from input simulations, rather than fitted
+#if sim and exact:
+#    filenames = np.loadtxt('/home/matt/software/matttest/results/sim_gxys.txt', dtype=str)
+#    re, rpx, rsep, ie, qb, PAb = src.import_sim_blob_values(filenames)
+#    nsers = 1.5*np.ones((len(re)))
 
-#exit(0)
 if logscale:
 #    logre = re
     logie = ie
 #thta = np.pi/15
 #thta = src.min_rotation(ie, nsers, thta0=0)
+
+### check significance of correlation coefficients
+ccs = src.corr_coeff_bootstrap(nb, re, ie, rsep, nsers, qb, PAb, Qgal, PAgal, sig=2)
+#print ccs
+#exit(0)
 
 use_qb_mask = False
 if use_qb_mask:
@@ -306,9 +350,9 @@ if use_re_mask:
 #############################################################################
 #'''
 ### Selection function
-trials = 1000000
+trials = 100000
 bb_array = src.calc_bb_array(ie, rpx)  
-sf_array = src.calc_selection_fct(bb_array, trials=1000)
+sf_array = src.calc_selection_fct(bb_array, trials=trials)
 #try:
 #    pcnts_array = (sf_array[:,:,0]/sf_array[:,:,1])
 #except:
@@ -333,6 +377,8 @@ weights[weights == 0] = 1
 if kw_extra != '':
     weights = np.ones(weights.shape)#*0.01
 #weights[1] = 1000
+#print weights
+#exit(0)
 copies = weights.astype(int)
 rextra = np.array(([]))#np.zeros((np.sum(copies)-len(copies)))
 iextra = np.array(([]))#np.zeros((np.sum(copies)-len(copies)))
@@ -444,40 +490,60 @@ elif blob_type == 'eff':
     NBE = src.Pdf_info('nbe')
     NBE.add_data(nb,np.random.uniform)
     QGE = src.Pdf_info('qgale')
-    QGE.add_data(Qgal,np.random.uniform)
+    QGE.add_data(Qgal,sf.cauchy_lmfit_trunc)
+#    QGE.add_invar(np.ones(Qgal.shape))
     QBE = src.Pdf_info('qb')
 #    if kw_extra == '':
     QBE.add_data(qb, sf.cauchy_lmfit_trunc)#, normalized=False)
 #    el:
 #        QBE.add_data(qb, sf.gaussian_lmfit_trunc) #for div10
-    if sim:
-        QBE.add_invar(np.ones(qb.shape))
-    else:
-        QBE.add_invar(weights)
-#    RCE = src.Pdf_info('rsepe')
-#    RCE.add_data(rsep, sf.weibull_lmfit, normalized=True)
-#    IOE = src.Pdf_info('io')
-#    IOE.add_data(ie, sf.exponential_lmfit)
-#    RSE = src.Pdf_info('a')
-#    RSE.add_data(re, sf.gaussian_lmfit)
+#    if sim:
+    QBE.add_invar(np.ones(qb.shape))
+#    else:
+#        QBE.add_invar(weights)
+    DCE = src.Pdf_info('rsepe')
+    DCE.add_data(rsep, sf.weibull_lmfit)#_trunc)#, normalized=True)
+#    if sim:
+    DCE.add_invar(np.ones(rsep.shape))
+#    else:
+#        RCE.add_invar(weights)
+    ICE = src.Pdf_info('ic')
+#    ICE.add_data(ie, sf.cauchy_lmfit_trunc)
+    ICE.add_data(ie, sf.weibull_lmfit)
+    ICE.add_invar(weights)
+    RCE = src.Pdf_info('rc')
+    RCE.add_data(re, sf.cauchy_lmfit_trunc)
+    RCE.add_invar(weights)
 #    EFF = src.Pdf_info('eff_joint')
 ##    EFF.add_data(np.vstack((re, ie, qb)), sf.cauchy3_irq, normalized=False)
 #    EFF.add_data(np.vstack((re, ie, qb)), sf.gen_central2d, normalized=False)
 #    EFF.add_kwargs(['cauchy','cauchy','cauchy']) ### distribution for each...
+    '''
+    #Various efforts at joint distributions if they need to be revived later
     IRD = src.Pdf_info('ird')
     IRD.add_data(np.vstack((re, ie, rsep)), sf.gen_central2d, normalized=False)
 #    IRD.add_data(np.vstack((rtot, itot, dtot)), sf.gen_central2d, normalized=False)
     if sim:
         IRD.add_invar(np.vstack((np.ones(re.shape), np.ones(ie.shape), np.ones(rsep.shape))))
     else:
-        IRD.add_invar(np.vstack((weights,weights,weights)))
+        IRD.add_invar(np.vstack((weights,weights,np.ones(rsep.shape))))
     IRD.add_kwargs(['cauchy','cauchy','gaussian'])
+    IRJ = src.Pdf_info('irj')
+    IRJ.add_data(np.vstack((re, ie)), sf.gen_central2d, normalized=False)
+#    IRD.add_data(np.vstack((rtot, itot, dtot)), sf.gen_central2d, normalized=False)
+    if sim:
+        IRJ.add_invar(np.vstack((np.ones(re.shape), np.ones(ie.shape))))
+    else:
+        IRJ.add_invar(np.vstack((weights,weights)))
+#    IRJ.add_kwargs(['cauchy','cauchy'])
+    IRJ.add_kwargs(['lorentz'])
+    #'''
     if not gam_fixed:
         GAM = src.Pdf_info('gamma')
         GAM.add_data(nsers, sf.gaussian_lmfit)
 #    dists = [RCE, EFF]
-    dists = [QBE, IRD]
-#    dists = [IRD]
+    dists = [QGE, QBE, DCE, ICE, RCE] #IRJ]# IRD] 
+#    dists = [ICE, RCE]
 
 #dists = [RC, LogIE, NS, LogRE]
 #dists = [RC, Sersic]
@@ -490,7 +556,11 @@ def find_dist_params(dists, overwrite=False, bootstrap=False, plot=False, sim=Fa
         if not bootstrap:
             if os.path.isfile('/home/matt/software/matttest/results/pdf_params_{}{}.npy'.format(quant.name, kw_extra)) and not overwrite:
                 if sim:
-                    qq = np.load('/home/matt/software/matttest/results/sim_params_{}.npy'.format(quant.name))[()]    
+                    if exact:
+                        extra = '_exact'
+                    else:
+                        extra = ""
+                    qq = np.load('/home/matt/software/matttest/results/pdf_params_sim_{}{}.npy'.format(quant.name,extra))[()]    
                 else:
                     qq = np.load('/home/matt/software/matttest/results/pdf_params_{}{}.npy'.format(quant.name, kw_extra))[()]
                 dists[idx] = qq
@@ -502,9 +572,13 @@ def find_dist_params(dists, overwrite=False, bootstrap=False, plot=False, sim=Fa
             pa, bnds = src.pdf_param_guesses(quant.name, return_array=True)
             quant.add_paramarray(pa, bnds)
             index_cnt = 0
-#            src.plot_1d_projections(quant, index_cnt=index_cnt, plot_2d=True, use_array=True)
+#            src.plot_1d_projections(quant, index_cnt=index_cnt, plot_2d=True)#, use_array=True)
             if sim:
-                fit_params = src.fit_nd_dist(quant, save_name = 'sim_'+quant.name, index_cnt=index_cnt, method='opt_minimize')
+                if exact:
+                    extra = '_exact'
+                else:
+                    extra = ""
+                fit_params = src.fit_nd_dist(quant, save_name = 'sim_'+quant.name+extra, index_cnt=index_cnt, method='opt_minimize')
             else:
                 print "fitting:", quant.name
                 time.sleep(2)
@@ -535,13 +609,30 @@ if blob_type == 'eff':
 #    EFF = np.load('/home/matt/software/matttest/results/pdf_params_{}.npy'.format(EFF.name))[()]
 #    EFF.normalized = True ## For now, set to true for faster processing
     if sim:
-        QBE = np.load('/home/matt/software/matttest/results/pdf_params_sim_{}.npy'.format(QBE.name))[()]
-        IRD = np.load('/home/matt/software/matttest/results/pdf_params_sim_{}.npy'.format(IRD.name))[()]
+        for d in dists:
+            if compare:
+                d1 = np.load('/home/matt/software/matttest/results/pdf_params_sim_{}{}.npy'.format(d.name,'_exact'))[()]
+                d2 = np.load('/home/matt/software/matttest/results/pdf_params_sim_{}{}.npy'.format(d.name,""))[()]
+                print d1.paramarray-d2.paramarray
+            else: 
+                if exact:
+                    extra = '_exact'
+                else:
+                    extra = ""
+                d = np.load('/home/matt/software/matttest/results/pdf_params_sim_{}{}.npy'.format(d.name,extra))[()]
+                print d.paramarray
+        if compare:
+            exit(0)
+#        QGE = np.load('/home/matt/software/matttest/results/pdf_params_sim_{}.npy'.format(QGE.name))[()]
+#        QBE = np.load('/home/matt/software/matttest/results/pdf_params_sim_{}.npy'.format(QBE.name))[()]
+#        IRD = np.load('/home/matt/software/matttest/results/pdf_params_sim_{}.npy'.format(IRD.name))[()]
     else:
-        QBE = np.load('/home/matt/software/matttest/results/pdf_params_{}{}.npy'.format(QBE.name,kw_extra))[()]
-        IRD = np.load('/home/matt/software/matttest/results/pdf_params_{}{}.npy'.format(IRD.name,kw_extra))[()]
+        for d in dists:
+            d = np.load('/home/matt/software/matttest/results/pdf_params_{}.npy'.format(d.name))[()]
+#        QGE = np.load('/home/matt/software/matttest/results/pdf_params_{}{}.npy'.format(QGE.name,kw_extra))[()]
+#        QBE = np.load('/home/matt/software/matttest/results/pdf_params_{}{}.npy'.format(QBE.name,kw_extra))[()]
+#        IRD = np.load('/home/matt/software/matttest/results/pdf_params_{}{}.npy'.format(IRD.name,kw_extra))[()]
     
-
 
 #########################################################################
 #########################################################################
@@ -562,22 +653,38 @@ print "Running bootstrap (to estimate errors)"
 tb0 = time.time()
 overwriteb = args_in.bootstrap # overwrite bootstrap param files?
 if blob_type == 'eff':
+    fnames = [""]*len(dists)#np.zeros((len(dists)))#['fqge', fqbe, fdce, fice, frce]
+    pnames = [""]*len(dists)#np.zeros((len(dists)))#[qge_params, qbe_params, dce_params, ice_params, rce_params]
     if sim:
+        for idx in range(len(fnames)):
+            fnames[idx] = '/home/matt/software/matttest/results/sim_params_boot_{}.npy'.format(dists[idx].name)
 #        frce = '/home/matt/software/matttest/results/sim_params_boot_{}.npy'.format(RCE.name)
-#        feff = '/home/matt/software/matttest/results/sim_params_boot_{}.npy'.format(EFF.name)
-        fqbe = '/home/matt/software/matttest/results/sim_params_boot_{}.npy'.format(QBE.name)
-        fird = '/home/matt/software/matttest/results/sim_params_boot_{}.npy'.format(IRD.name)
+#        feff = '/home/matt/software/matttest/results/sim_params_boot_{}.npy'.format(EFF.name
+#        fqge = '/home/matt/software/matttest/results/sim_params_boot_{}.npy'.format(QGE.name)
+#        fqbe = '/home/matt/software/matttest/results/sim_params_boot_{}.npy'.format(QBE.name)
+#        frce = '/home/matt/software/matttest/results/sim_params_boot_{}.npy'.format(RCE.name)
+#        fird = '/home/matt/software/matttest/results/sim_params_boot_{}.npy'.format(IRD.name)
+#        firj = '/home/matt/software/matttest/results/sim_params_boot_{}.npy'.format(IRJ.name)
     else:
+        for idx in range(len(fnames)):
+            fnames[idx] = '/home/matt/software/matttest/results/pdf_params_boot_{}{}.npy'.format(dists[idx].name,kw_extra)
 #        frce = '/home/matt/software/matttest/results/pdf_params_boot_{}.npy'.format(RCE.name)
 #        feff = '/home/matt/software/matttest/results/pdf_params_boot_{}.npy'.format(EFF.name)
-        fqbe = '/home/matt/software/matttest/results/pdf_params_boot_{}{}.npy'.format(QBE.name,kw_extra)
-        fird = '/home/matt/software/matttest/results/pdf_params_boot_{}{}.npy'.format(IRD.name,kw_extra)
+#        fqge = '/home/matt/software/matttest/results/pdf_params_boot_{}{}.npy'.format(QGE.name,kw_extra)
+#        fqbe = '/home/matt/software/matttest/results/pdf_params_boot_{}{}.npy'.format(QBE.name,kw_extra)
+#        frce = '/home/matt/software/matttest/results/pdf_params_boot_{}{}.npy'.format(RCE.name,kw_extra)
+#        fird = '/home/matt/software/matttest/results/pdf_params_boot_{}{}.npy'.format(IRD.name,kw_extra)
+#        firj = '/home/matt/software/matttest/results/pdf_params_boot_{}{}.npy'.format(IRJ.name,kw_extra)
 #    if os.path.isfile(frce) and os.path.isfile(feff) and not overwriteb:
 #        rce_params = np.load(frce)
 #        eff_params = np.load(feff)
-    if os.path.isfile(fqbe) and os.path.isfile(fird) and not overwriteb:
-        qbe_params = np.load(fqbe)
-        ird_params = np.load(fird)
+    pths = [os.path.isfile(f) for f in fnames]
+    if np.prod(pths) == 1 and not overwriteb:
+        for i in range(len(pnames)):
+            pnames[i] = np.load(fnames[i])
+#        qge_params = np.load(fqge)
+#        qbe_params = np.load(fqbe)
+#        ird_params = np.load(fird)
 #    else:
 #        nboot = 1000 #Set to 1000? - might need to parallelize...
 #        rce_params = np.zeros((2, nboot)) ### Weibull params
@@ -593,17 +700,37 @@ if blob_type == 'eff':
 #            eff_params[:, bt] = find_dist_params(EFF, bootstrap=True)
     else:
         nboot = 1000 #Set to 1000? - might need to parallelize...
-        qbe_params = np.zeros((2, nboot)) ### Weibull params
-        ird_params = np.zeros((9, nboot)) ### Joint pdf params
+        ### have to manually adjust this if distributions change...
+        for i in range(len(pnames)):
+            pnames[i] = np.zeros((2,nboot))
+#        qge_params = np.zeros((2, nboot))
+#        qbe_params = np.zeros((2, nboot))
+#        ird_params = np.zeros((9, nboot)) ### Joint pdf params
         for bt in range(nboot):
             if bt%50 == 0:
                 print("On bootstrap iteration {}/{}".format(bt,nboot))
             ### Resample all clump, galaxy parameters
             nbbs, rebs, iebs, rsepbs, nsersbs, qbbs, PAbb, Qgalbs, PAgalbs = src.resample(nb, re, ie, rsep, nsers, qb, PAb, Qgal, PAgal)
-            QBE.data = qbbs.reshape(1,len(qbbs))
-            IRD.data = np.vstack((rebs, iebs, rsepbs))
-            qbe_params[:, bt] = find_dist_params(QBE, bootstrap=True)
-            ird_params[:, bt] = find_dist_params(IRD, bootstrap=True)
+            ### also need to manually adjust this if distributions change
+            for idx in range(len(pnames)):
+                if idx == 0:
+                    quant = 1.0*Qgalbs
+                elif idx == 1:
+                    quant = 1.0*qbbs
+                elif idx == 2:
+                    quant = 1.0*rsepbs
+                elif idx == 3:
+                    quant = 1.0*iebs
+                elif idx == 4:
+                    quant = 1.0*rebs
+                dists[idx].data = quant.reshape(1,len(quant))
+#            QGE.data = Qgalbs.reshape(1,len(Qgalbs))
+#            QBE.data = qbbs.reshape(1,len(qbbs))
+#            IRD.data = np.vstack((rebs, iebs, rsepbs))
+                pnames[idx][:, bt] = find_dist_params(dists[idx], bootstrap=True)
+#            qge_params[:, bt] = find_dist_params(QGE, bootstrap=True)
+#            qbe_params[:, bt] = find_dist_params(QBE, bootstrap=True)
+#            ird_params[:, bt] = find_dist_params(IRD, bootstrap=True)
     
 tbf = time.time()
 if blob_type == 'eff':
@@ -614,11 +741,18 @@ if blob_type == 'eff':
 #        np.save('/home/matt/software/matttest/results/pdf_params_boot_{}.npy'.format(RCE.name),rce_params)
 #        np.save('/home/matt/software/matttest/results/pdf_params_boot_{}.npy'.format(EFF.name),eff_params)
     if sim:
-        np.save('/home/matt/software/matttest/results/sim_params_boot_{}.npy'.format(QBE.name),qbe_params)
-        np.save('/home/matt/software/matttest/results/sim_params_boot_{}.npy'.format(IRD.name),ird_params)
+        for idx in range(len(dists)):
+            print idx, pnames[idx], dists[idx]
+            np.save('/home/matt/software/matttest/results/sim_params_boot_{}.npy'.format(dists[idx].name),pnames[idx])
+#        np.save('/home/matt/software/matttest/results/sim_params_boot_{}.npy'.format(QGE.name),qbe_params)
+#        np.save('/home/matt/software/matttest/results/sim_params_boot_{}.npy'.format(QBE.name),qbe_params)
+#        np.save('/home/matt/software/matttest/results/sim_params_boot_{}.npy'.format(IRD.name),ird_params)
     else:
-        np.save('/home/matt/software/matttest/results/pdf_params_boot_{}{}.npy'.format(QBE.name,kw_extra),qbe_params)
-        np.save('/home/matt/software/matttest/results/pdf_params_boot_{}{}.npy'.format(IRD.name,kw_extra),ird_params)
+        for idx in range(len(dists)):
+            np.save('/home/matt/software/matttest/results/pdf_params_boot_{}{}.npy'.format(dists[idx].name,kw_extra),pnames[idx])
+#        np.save('/home/matt/software/matttest/results/pdf_params_boot_{}{}.npy'.format(QGE.name,kw_extra),qge_params)
+#        np.save('/home/matt/software/matttest/results/pdf_params_boot_{}{}.npy'.format(QBE.name,kw_extra),qbe_params)
+#        np.save('/home/matt/software/matttest/results/pdf_params_boot_{}{}.npy'.format(IRD.name,kw_extra),ird_params)
 print "Bootstrap time =", tbf-tb0
 #for k in range(2):
 #    plt.plot(rce_params[k,:],'k.')
@@ -663,14 +797,25 @@ if blob_type == 'eff':
 #    else:
 #        np.save('/home/matt/software/matttest/results/pdf_params_final_{}.npy'.format(RCE.name), rce_params_errs)
 #        np.save('/home/matt/software/matttest/results/pdf_params_final_{}.npy'.format(EFF.name), eff_params_errs)
-    qbe_params_errs = bootstrap_errs(qbe_params, true_params=QBE.paramarray)
-    ird_params_errs = bootstrap_errs(ird_params, true_params=IRD.paramarray)
+    earrs = [""]*len(dists)
+    for idx in range(len(earrs)):
+        earrs[idx] = bootstrap_errs(pnames[idx], true_params=dists[idx].paramarray)
+#        print earrs[idx]
+#    qge_params_errs = bootstrap_errs(qge_params, true_params=QGE.paramarray)    
+#    qbe_params_errs = bootstrap_errs(qbe_params, true_params=QBE.paramarray)
+#    ird_params_errs = bootstrap_errs(ird_params, true_params=IRD.paramarray)
     if sim:
-        np.save('/home/matt/software/matttest/results/sim_params_final_{}.npy'.format(QBE.name), qbe_params_errs)
-        np.save('/home/matt/software/matttest/results/sim_params_final_{}.npy'.format(IRD.name), ird_params_errs)
+        for idx in range(len(dists)):
+            np.save('/home/matt/software/matttest/results/sim_params_final_{}.npy'.format(dists[idx].name), earrs[idx])
+#        np.save('/home/matt/software/matttest/results/sim_params_final_{}.npy'.format(QGE.name), qge_params_errs)
+#        np.save('/home/matt/software/matttest/results/sim_params_final_{}.npy'.format(QBE.name), qbe_params_errs)
+#        np.save('/home/matt/software/matttest/results/sim_params_final_{}.npy'.format(IRD.name), ird_params_errs)
     else:
-        np.save('/home/matt/software/matttest/results/pdf_params_final_{}{}.npy'.format(QBE.name,kw_extra), qbe_params_errs)
-        np.save('/home/matt/software/matttest/results/pdf_params_final_{}{}.npy'.format(IRD.name,kw_extra), ird_params_errs)
+        for idx in range(len(dists)):
+            np.save('/home/matt/software/matttest/results/pdf_params_final_{}{}.npy'.format(dists[idx].name,kw_extra), earrs[idx])
+#        np.save('/home/matt/software/matttest/results/pdf_params_final_{}{}.npy'.format(QGE.name,kw_extra), qge_params_errs)
+#        np.save('/home/matt/software/matttest/results/pdf_params_final_{}{}.npy'.format(QBE.name,kw_extra), qbe_params_errs)
+#        np.save('/home/matt/software/matttest/results/pdf_params_final_{}{}.npy'.format(IRD.name,kw_extra), ird_params_errs)
 
 #print rce_params_errs
 #print eff_params_errs
@@ -693,18 +838,22 @@ if blob_type == 'eff':
 ### Draw from the distributions above to create simulated galaxies
 if sim:
     exit(0) ## - don't re-make simulated galaxies
-qbf = np.load('/home/matt/software/matttest/results/sim_gxys/sim_params_final_qb_fit.npy')
-qbt = np.load('/home/matt/software/matttest/results/sim_gxys/sim_params_final_qb_true.npy')
-irdf = np.load('/home/matt/software/matttest/results/sim_gxys/sim_params_final_ird_fit.npy') 
-irdt = np.load('/home/matt/software/matttest/results/sim_gxys/sim_params_final_ird_true.npy')
-qbc = qbt[:,0] - qbf[:,0]
-irdc = irdt[:,0] - irdf[:,0]
+### For bias corrections from sim
+#qgf = np.load('/home/matt/software/matttest/results/sim_gxys/sim_params_final_qg_fit.npy')
+#qgt = np.load('/home/matt/software/matttest/results/sim_gxys/sim_params_final_qg_true.npy')
+#qbf = np.load('/home/matt/software/matttest/results/sim_gxys/sim_params_final_qb_fit.npy')
+#qbt = np.load('/home/matt/software/matttest/results/sim_gxys/sim_params_final_qb_true.npy')
+#irdf = np.load('/home/matt/software/matttest/results/sim_gxys/sim_params_final_ird_fit.npy') 
+#irdt = np.load('/home/matt/software/matttest/results/sim_gxys/sim_params_final_ird_true.npy')
+##qgc = qgt[:,0] - qgf[:,0]
+#qbc = qbt[:,0] - qbf[:,0]
+#irdc = irdt[:,0] - irdf[:,0]
 #dists = [RCE, EFF]
-dists = [QBE, IRD]
+#dists = [QGE, QBE, IRD]
 if blob_type == 'eff':
     for Pdf in dists:
         if Pdf.name == 'rsepe':
-            Pdf.add_draw(np.random.weibull)
+            Pdf.add_draw(sf.weibull_draw)
         elif Pdf.name == 'eff_joint':
             Pdf.add_draw(np.array((3*[sf.cauchy_draw])))
         elif Pdf.name == 'qb':
@@ -713,9 +862,17 @@ if blob_type == 'eff':
         elif Pdf.name == 'ird':
 #            Pdf.add_draw(np.array(([sf.gauss_draw, sf.cauchy_draw, sf.gauss_draw])))
             Pdf.add_draw(np.array(([sf.cauchy_draw, sf.cauchy_draw, sf.gauss_draw])))
+        elif Pdf.name == 'qgale':
+            Pdf.add_draw(sf.cauchy_draw)
+        elif Pdf.name == 'rc':
+            Pdf.add_draw(sf.cauchy_draw)
+        elif Pdf.name == 'ic':
+            Pdf.add_draw(sf.weibull_draw)
+#            Pdf.add_draw(sf.cauchy_draw)
 ### Add bias correction estimates
-QBE.paramarray = QBE.paramarray + qbc
-IRD.paramarray = IRD.paramarray + irdc
+#QGE.paramarray = QGE.paramarray + qgc
+#QBE.paramarray = QBE.paramarray + qbc
+#IRD.paramarray = IRD.paramarray + irdc
 
 ##############################################################################
 '''
@@ -778,17 +935,18 @@ for i in range(n_gxys):
     i1 = int(np.mod(i,5))
     i2 = int(np.floor(i/5))
     dim1 = 120
-    fake_gal, qtmp, noise = src.make_sim_gal(dists, dim=dim, profile=profile, return_noise=True, save=save, save_idx=i)
+    fake_gal, qtmp, noise = src.make_sim_gal(dists, dim=dim, profile=profile, return_noise=True, save=save, save_idx=i, plot_results=False)
     ### save for later analysis - overwrite every time right now...
     if not save:
         hdu0 = pyfits.PrimaryHDU(fake_gal)
         hdu1 = pyfits.PrimaryHDU(noise)
         ### Additional new header values
         hdu0.header.append(('UNITS','Counts','Relative photon counts (no flat fielding)'))
+        hdu0.header.append(('MODEL',profile,'clump model used to generate galaxy'))
         hdu1.header.append(('UNITS','Noise/Error','standard deviation'))
         hdulist = pyfits.HDUList([hdu0])
         hdulist.append(hdu1)
-        hdulist.writeto('/home/matt/software/matttest/results/sim_gxy_{:03d}.fits'.format(i),clobber=True)
+        hdulist.writeto('/home/matt/software/matttest/results/sim_gxy_{:03d}{}.fits'.format(i, param_kw),clobber=True)
     qs += list(qtmp)
 #    dims = [100, 100]
 #    fake_gal = fake_gal[dim]

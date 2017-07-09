@@ -922,10 +922,10 @@ if args_in.sim:
     noise = pyfits.open(args_in.filename)[1].data
     ### make a cut on the peak flux in ~1pixel from each clump - depends on i and r
     fluxes = src.eff_flux(np.sqrt(1/np.pi),spar[2], spar[3])
-    print np.std(noise)
-    msk = fluxes > 1*np.std(noise)
+#    print np.std(noise)
+    msk = (fluxes > 1*np.std(noise))*(spar[0] > 0)*(spar[0] < noise.shape[1])*(spar[1] > 0)*(spar[1] < noise.shape[0])
 #    print msk
-    xb, yb, sbb, sigb, qgal, PAgal = spar[0][msk], spar[1][msk], spar[2][msk], spar[3][msk], spar[4][msk], spar[5][msk]
+    xb, yb, sbb, sigb, qgal, PAgal = spar[0][msk], spar[1][msk], spar[2][msk], spar[6][msk], spar[5][msk], spar[4][msk]
 #    if len(xb) > 4:
 #        exit(0)
     ### can add read noise, but don't think it'll really matter that much...
@@ -1033,8 +1033,8 @@ for i in range(kws['nblobs']):
     if not use_ab:
         sersic_names += ['xcb{}'.format(i),'ycb{}'.format(i),'Ieb{}'.format(i),'reb{}'.format(i),'nb{}'.format(i),'qb{}'.format(i),'PAb{}'.format(i)]
         sersic_estimates += [xb[i], yb[i], sbb[i], sigb[i], nsb[i], qgal[i], PAgal[i]]
-        sersic_mins += [xb[i]-0.5, yb[i]-0.5, sbb[i]/10, sigb[i]/3, 0.01, 0.1, -1000*np.pi]
-        sersic_maxes += [xb[i]+0.5, yb[i]+0.5, sbb[i]*10, sigb[i]*3, 20, 10, 1000*np.pi]
+        sersic_mins += [xb[i]-0.5, yb[i]-0.5, sbb[i]/10, sigb[i]/3, 0.01, 0.01, -1000*np.pi]
+        sersic_maxes += [xb[i]+0.5, yb[i]+0.5, sbb[i]*10, sigb[i]*3, 20, 100, 1000*np.pi]
     ### a, b space ...
     else:
         sersic_names += ['xcb{}'.format(i),'ycb{}'.format(i),'Ieb{}'.format(i),'ab{}'.format(i),'nb{}'.format(i),'bb{}'.format(i),'PAb{}'.format(i)]
@@ -1066,13 +1066,13 @@ chi2_guess = np.sum((pix_image-guess_model)**2*pix_invar)/(np.size(pix_image)-np
 print("Guess chi^2 red = {}".format(chi2_guess))
 
 if eval_guess:
-#    plt.imshow(np.hstack((pix_image,guess_model,pix_image-guess_model)),interpolation='none')
-    plt.imshow(pix_image, interpolation = 'none')
-    plt.plot(xb, yb, 'bo')
+    plt.imshow(np.hstack((pix_image,guess_model,pix_image-guess_model)),interpolation='none')
+#    plt.imshow(pix_image, interpolation = 'none')
+#    plt.plot(xb, yb, 'bo')
 #    sf.plot_3D((pix_image-guess_model))
     plt.show()
     plt.close()
-    exit(0)
+#    exit(0)
 
 ### Actual fitting:
 #leastsq_kws = {'maxfev':16000} #Option to adjust maximum function evaluations

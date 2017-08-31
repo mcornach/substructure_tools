@@ -50,12 +50,14 @@ parser.add_argument("-s","--sim",help="Take inputs from simulated galaxies", act
 parser.add_argument("-t","--blob_type",help="SB profile model for clumps/blobs", default='eff')
 parser.add_argument("-k","--kw_extra",help="append param_kw for special cases", default='')
 parser.add_argument("-x","--exact",help="use true/exact parameters from simulations", action='store_true')
+parser.add_argument("-a","--angle",help="use to view position angle correlations", action='store_true')
 parser.add_argument("-c","--compare",help="look at sim bias-true", action='store_true')
 args_in = parser.parse_args()
 blob_type = args_in.blob_type
 kw_extra = args_in.kw_extra
 exact = args_in.exact
 compare = args_in.compare
+PA_corr = args_in.angle
 if kw_extra is not '':
     kw_extra = '_' + kw_extra
 
@@ -264,7 +266,7 @@ elif os.path.isfile('/home/matt/software/matttest/results/sim_clump_values{}_{}.
     fname = '/home/matt/software/matttest/results/sim_clump_values{}_{}.npy'.format(param_kw,"log" if logscale else "lin")
     [nb, re, ie, rsep, nsers, qb, PAb, Qgal, PAgal, rpx] = np.load(fname)
 else:
-    use_model = False#not sim
+    use_model = True#not sim
     if sim:
         filenamesc = np.loadtxt('/home/matt/software/matttest/results/sim_gxys.txt', dtype=str)
         centroids, qgals, PAgals = src.get_centroids(filenamesc, use_model=use_model, return_axis_ratio=True, param_kw=param_kw)
@@ -288,7 +290,32 @@ else:
 #    plt.close()
 #    exit(0)
     print "Importing fitted blob values"
-    nb, re, ie, rsep, nsers, qb, PAb, Qgal, PAgal, rpx = src.import_fitted_blob_values(filenames, plot_dists=True, centroids=centroids, qgal=qgals, PAgal=PAgals, logscale=logscale, bins=14, param_kw=param_kw,sim=sim, exact=exact)
+    nb, re, ie, rsep, nsers, qb, PAb, Qgal, PAgal, rpx = src.import_fitted_blob_values(filenames, plot_dists=True, centroids=centroids, qgal=qgals, PAgal=PAgals, logscale=logscale, bins=14, param_kw=param_kw,sim=sim, exact=exact, view_PA_corr=PA_corr)
+    '''
+    ### For checking blob count, luminosity, and magnitude relations
+    lums = src.import_fitted_blob_values(filenames, plot_dists=False, centroids=centroids, qgal=qgals, PAgal=PAgals, logscale=logscale, bins=14, param_kw=param_kw,sim=sim, exact=exact, view_PA_corr=PA_corr, return_lum=True)
+    print lums
+    lum_arr = np.zeros((len(lums)))
+    for i in range(len(lum_arr)):
+        lum_arr[i] = np.sum(lums[i])
+    nc = np.array(([8, 8, 5, 4, 4, 3, 1, 1, 9, 3, 4, 8, 3, 7, 8, 2, 9]))
+    mag = np.array(([14, 26, 15, 9, 16, 14, 6, 7, 18, 8, 17, 4, 8, 12, 13, 6, 23]))
+    print "lum x mag"
+    plt.plot(lum_arr*mag,'k.')
+    plt.show()
+    plt.close()
+    print "lum v num"
+    print sf.correlation_coeff(lum_arr, nc)
+    plt.plot(lum_arr, nc, 'k.')
+    plt.show()
+    plt.close()
+    print "mag v num"
+    print sf.correlation_coeff(mag, nc)
+    plt.plot(mag, nc, 'k.')
+    plt.show()
+    plt.close()
+    exit(0)
+    #'''
 #    plt.hist(Qgal,bins=9)
 #    plt.show()
 #    plt.close()
@@ -322,7 +349,12 @@ if logscale:
 
 ### check significance of correlation coefficients
 ccs = src.corr_coeff_bootstrap(nb, re, ie, rsep, nsers, qb, PAb, Qgal, PAgal, sig=2)
-#print ccs
+#th1 = np.pi/6
+#th2, th3 = 0, 0
+#rrot, irot, drot = src.get_rots(re-0.2,ie,rsep-0.1,th1,th2,th3)
+#plt.hist(irot,14)
+#plt.show()
+print ccs
 #exit(0)
 
 use_qb_mask = False
@@ -398,9 +430,45 @@ dtot = np.append(rsep,dextra)
 #plt.hist(dtot,20)
 #plt.show()
 #exit(0)
-#'''
-
 '''
+
+ddist = np.histogram(rsep, bins=14, normed=True)
+print ddist
+dmns = (ddist[1][:-1] + ddist[1][1:])/2
+plt.plot(dmns, np.log(ddist[0]/dmns))
+plt.show()
+plt.plot(np.log(dmns), np.log(ddist[0]/dmns))
+plt.show()
+def res_fct(params, x, y):
+    m = params['a'].value*np.exp(-x/params['s'].value)
+    return y-m
+    
+def res_pwr(params, x, y):
+    m = x**params['p'].value
+    return y-m
+    
+params = lmfit.Parameters()
+params.add('a', value = 8)
+params.add('s', value = 1)
+params.add('p', value = -2)
+args = (dmns, ddist[0]/dmns)
+res1 = lmfit.minimize(res_fct, params, args=args)
+res2 = lmfit.minimize(res_pwr, params, args=args)
+fit1 = np.sum(res_fct(params, dmns, ddist[0]/dmns)**2)/(14-2)
+fit2 = np.sum(res_pwr(params, dmns, ddist[0]/dmns)**2)/(14-1)
+print "exp:", fit1
+print " ", params['a'].value, params['s'].value
+plt.plot(dmns, ddist[0]/dmns, dmns, params['a'].value*np.exp(-dmns/params['s'].value))
+plt.show()
+plt.close()
+print "pwr:", fit2
+print " ", params['p'].value
+plt.plot(dmns, ddist[0]/dmns, dmns, dmns**params['p'].value)
+plt.show()
+plt.close()
+exit(0)
+
+
 ### Luminosity distributions (need to actuall use correct z)
 ### May also be good to do by galaxy to compare to literature
     
@@ -528,22 +596,34 @@ elif blob_type == 'eff':
     else:
         IRD.add_invar(np.vstack((weights,weights,np.ones(rsep.shape))))
     IRD.add_kwargs(['cauchy','cauchy','gaussian'])
-    IRJ = src.Pdf_info('irj')
-    IRJ.add_data(np.vstack((re, ie)), sf.gen_central2d, normalized=False)
+    
+#    IRJ = src.Pdf_info('irj')
+#    IRJ.add_data(np.vstack((re, ie)), sf.gen_central2d, normalized=False)
+##    IRD.add_data(np.vstack((rtot, itot, dtot)), sf.gen_central2d, normalized=False)
+#    if sim:
+#        IRJ.add_invar(np.vstack((np.ones(re.shape), np.ones(ie.shape))))
+#    else:
+#        IRJ.add_invar(np.vstack((weights,weights)))
+##    IRJ.add_kwargs(['cauchy','cauchy'])
+#    IRJ.add_kwargs(['lorentz'])
+    IDJ = src.Pdf_info('idj')
+    IDJ.add_data(np.vstack((ie, rsep)), sf.gen_central2d, normalized=False)
 #    IRD.add_data(np.vstack((rtot, itot, dtot)), sf.gen_central2d, normalized=False)
     if sim:
-        IRJ.add_invar(np.vstack((np.ones(re.shape), np.ones(ie.shape))))
+        IDJ.add_invar(np.vstack((np.ones(ie.shape), np.ones(rsep.shape))))
     else:
-        IRJ.add_invar(np.vstack((weights,weights)))
-#    IRJ.add_kwargs(['cauchy','cauchy'])
-    IRJ.add_kwargs(['lorentz'])
+        IDJ.add_invar(np.vstack((weights,np.ones(rsep.shape))))
+    IDJ.add_kwargs(['cauchy','gaussian'])
+#    IDJ.add_kwargs(['lorentz'])
     #'''
     if not gam_fixed:
         GAM = src.Pdf_info('gamma')
         GAM.add_data(nsers, sf.gaussian_lmfit)
 #    dists = [RCE, EFF]
     dists = [QGE, QBE, DCE, ICE, RCE] #IRJ]# IRD] 
-#    dists = [ICE, RCE]
+#    dists = [QGE, QBE, RCE, IDJ]
+#    dists = [QGE, QBE, IRD]
+#    dists = [IDJ]
 
 #dists = [RC, LogIE, NS, LogRE]
 #dists = [RC, Sersic]
@@ -637,13 +717,13 @@ if blob_type == 'eff':
 #########################################################################
 #########################################################################
 ###
-###  3333
-### 33  33
-###    33
-###  333 
-###    33
-### 33  33
-###  3333
+###   3333
+###  33  33
+###     33
+###   333 
+###     33
+###  33  33
+###   3333
 ###
 #########################################################################
 #########################################################################
@@ -702,7 +782,10 @@ if blob_type == 'eff':
         nboot = 1000 #Set to 1000? - might need to parallelize...
         ### have to manually adjust this if distributions change...
         for i in range(len(pnames)):
-            pnames[i] = np.zeros((2,nboot))
+            if len(pnames)==4 and i == 3:
+                pnames[i] = np.zeros((5,nboot))
+            else:
+                pnames[i] = np.zeros((2,nboot))
 #        qge_params = np.zeros((2, nboot))
 #        qbe_params = np.zeros((2, nboot))
 #        ird_params = np.zeros((9, nboot)) ### Joint pdf params
@@ -712,25 +795,44 @@ if blob_type == 'eff':
             ### Resample all clump, galaxy parameters
             nbbs, rebs, iebs, rsepbs, nsersbs, qbbs, PAbb, Qgalbs, PAgalbs = src.resample(nb, re, ie, rsep, nsers, qb, PAb, Qgal, PAgal)
             ### also need to manually adjust this if distributions change
-            for idx in range(len(pnames)):
-                if idx == 0:
-                    quant = 1.0*Qgalbs
-                elif idx == 1:
-                    quant = 1.0*qbbs
-                elif idx == 2:
-                    quant = 1.0*rsepbs
-                elif idx == 3:
-                    quant = 1.0*iebs
-                elif idx == 4:
-                    quant = 1.0*rebs
-                dists[idx].data = quant.reshape(1,len(quant))
-#            QGE.data = Qgalbs.reshape(1,len(Qgalbs))
+            if len(pnames)==5:
+                for idx in range(len(pnames)):
+                    if idx == 0:
+                        quant = 1.0*Qgalbs
+                    elif idx == 1:
+                        quant = 1.0*qbbs
+                    elif idx == 2:
+                        quant = 1.0*rsepbs
+                    elif idx == 3:
+                        quant = 1.0*iebs
+                    elif idx == 4:
+                        quant = 1.0*rebs
+                    dists[idx].data = quant.reshape(1,len(quant))
+    #            QGE.data = Qgalbs.reshape(1,len(Qgalbs))
 #            QBE.data = qbbs.reshape(1,len(qbbs))
 #            IRD.data = np.vstack((rebs, iebs, rsepbs))
-                pnames[idx][:, bt] = find_dist_params(dists[idx], bootstrap=True)
+                    pnames[idx][:, bt] = find_dist_params(dists[idx], bootstrap=True)
 #            qge_params[:, bt] = find_dist_params(QGE, bootstrap=True)
 #            qbe_params[:, bt] = find_dist_params(QBE, bootstrap=True)
 #            ird_params[:, bt] = find_dist_params(IRD, bootstrap=True)
+            else:
+                for idx in range(len(pnames)):
+                    if idx == 0:
+                        quant = 1.0*Qgalbs
+                    elif idx == 1:
+                        quant = 1.0*qbbs
+                    elif idx == 2:
+                        quant = 1.0*rebs
+                    elif idx == 3:
+                        quant = np.vstack((iebs, rsepbs))
+                    if quant.shape[0] == 2:
+                        dists[idx].data = quant
+                    else:
+                        dists[idx].data = quant.reshape(1,len(quant))
+    #            QGE.data = Qgalbs.reshape(1,len(Qgalbs))
+#            QBE.data = qbbs.reshape(1,len(qbbs))
+#            IRD.data = np.vstack((rebs, iebs, rsepbs))
+                    pnames[idx][:, bt] = find_dist_params(dists[idx], bootstrap=True)
     
 tbf = time.time()
 if blob_type == 'eff':
@@ -800,7 +902,7 @@ if blob_type == 'eff':
     earrs = [""]*len(dists)
     for idx in range(len(earrs)):
         earrs[idx] = bootstrap_errs(pnames[idx], true_params=dists[idx].paramarray)
-#        print earrs[idx]
+        print earrs[idx]
 #    qge_params_errs = bootstrap_errs(qge_params, true_params=QGE.paramarray)    
 #    qbe_params_errs = bootstrap_errs(qbe_params, true_params=QBE.paramarray)
 #    ird_params_errs = bootstrap_errs(ird_params, true_params=IRD.paramarray)
@@ -819,7 +921,7 @@ if blob_type == 'eff':
 
 #print rce_params_errs
 #print eff_params_errs
-#exit(0)
+exit(0)
 
 #########################################################################
 #########################################################################
@@ -862,6 +964,8 @@ if blob_type == 'eff':
         elif Pdf.name == 'ird':
 #            Pdf.add_draw(np.array(([sf.gauss_draw, sf.cauchy_draw, sf.gauss_draw])))
             Pdf.add_draw(np.array(([sf.cauchy_draw, sf.cauchy_draw, sf.gauss_draw])))
+        elif Pdf.name == 'idj':
+            Pdf.add_draw(np.array(([sf.cauchy_draw, sf.gauss_draw])))
         elif Pdf.name == 'qgale':
             Pdf.add_draw(sf.cauchy_draw)
         elif Pdf.name == 'rc':
@@ -974,7 +1078,8 @@ for i in range(n_gxys):
 #    ax.set_aspect(1*ratio, adjustable='box')
 #    plt.show()
 #    plt.close()
-plt.savefig('/home/matt/software/matttest/results/figs/sim_mosaic.pdf')
+plt.savefig('/home/matt/software/matttest/results/figs/sim_mosaic.pdf', bbox_inches='tight', pad_inches=0)
+plt.savefig('/home/matt/software/matttest/results/figs/sim_mosaic.eps', bbox_inches='tight', pad_inches=0)
 plt.show()
 plt.close()
 ### can check on various quantities to make sure draw is working right

@@ -25,7 +25,8 @@ import scipy.special as sp
 #import scipy.interpolate as si
 #import scipy.optimize as opt
 #import scipy.integrate as integrate
-#import lmfit
+from scipy.misc import factorial
+import lmfit
 #import scipy.sparse as sparse
 #import scipy.signal as sig
 #import scipy.linalg as linalg
@@ -34,19 +35,28 @@ import special as sf
 import source_utils as src
 import emcee
 
-def run_emcee(params, param_mins, param_maxes, xvals, nwalkers=100, ntrials=10000, burn_in=500, percents = [16,50,84], form='gaussian', plot_samples=False):
+def run_emcee(params, param_mins, param_maxes, xvals, yvals, zvals, nwalkers=100, ntrials=10000, burn_in=500, percents = [16,50,84], form='gaussian', plot_samples=False, parallel=False):
     ''' Run an instance of emcee with given inputs.
         Returns parameter estimates and error estimates (based upon percents)
     '''
-    ndim = len(params)
-    pos = [params + 1e-4*np.random.randn(ndim) for i in range(nwalkers)]
+    ndim = len(params.ravel())
+    pos = [params.ravel() + 1e-4*np.random.randn(ndim) for i in range(nwalkers)]
     t0 = time.time()
     kwargs = dict()
     kwargs['form'] = form
-    sampler = emcee.EnsembleSampler(nwalkers, ndim, lnprob, args=(param_mins,param_maxes,xvals), kwargs=kwargs)
-    sampler.run_mcmc(pos, ntrials)
+#    sampler = emcee.EnsembleSampler(nwalkers, ndim, lnprob, args=(param_mins,param_maxes,xvals), kwargs=kwargs)
+    if parallel:
+        pool = emcee.interruptible_pool.InterruptiblePool()
+    else:
+        pool = None        
+    sampler = emcee.EnsembleSampler(nwalkers, ndim, lnprob, args=(param_mins,param_maxes,xvals, yvals, zvals), pool=pool, kwargs=kwargs)
+#    nsteps = 5000
+    for i, result in enumerate(sampler.sample(pos, iterations=ntrials)):
+        if (i+1) % 100 == 0:
+            print("{0:5.1%}".format(float(i) / ntrials))
+#    sampler.run_mcmc(pos, ntrials)
     
-#    ###Attempts to integrate MP    
+#    ###Attempts to integrate MP
 #    def samp(pos, ntrials):
 #        sampler.run_mcmc(pos, ntrials)
 #        return
@@ -62,9 +72,10 @@ def run_emcee(params, param_mins, param_maxes, xvals, nwalkers=100, ntrials=1000
 
     t1 = time.time()
     print("emcee time = {}s".format(t1-t0))
-
+    print "Acceptance Fraction = {}".format(sampler.acceptance_fraction)
     if plot_samples:
         for i in range(sampler.chain.shape[2]):
+            print "Param {} autocorrelation length = {}".format(i,sampler.acor[i])
             for j in range(100):
                 plt.plot(sampler.chain[j,:,i])
             plt.show()
@@ -78,22 +89,34 @@ def run_emcee(params, param_mins, param_maxes, xvals, nwalkers=100, ntrials=1000
     new_params = map(lambda v: (v[1], v[2]-v[1], v[1]-v[0]), zip(*np.percentile(samples, percents, axis=0)))
     return new_params
 
-#def lnlike(params,x,y,z,inv_z,psf,mode='sersic'):
-#    """ log likelihood function for emcee
-#    """
-##    model = galaxy_profile(params,x,y,z,return_residuals=False)
-#    if mode == 'sersic':
-#        xc, yc, q, PA, Ie, re, n = params ### Unpack parameters
-#        model = sersic2D(x,y,xc,yc,Ie,re,n,q=q,PA=PA)
-##        model = signal.convolve2d(model,psf,mode='same') ### Convolve with psf
-#    elif mode == 'gaussian':
-#        q, PA, xc, yc, sigx, sigy, hght = params
-#        model = hght*sf.gauss2d(x,y,sigx,sigy,xcenter=xc,ycenter=yc,q=q,PA=PA)
-#    else:
-#        print("Invalid mode in lnlike")
-#        exit(0)
-#    log_likelihood = -0.5*(np.sum((z-model)**2*inv_z - np.log(inv_z)))
-#    return log_likelihood
+def lnlike(params,x,y,z,inv_z,mode='eff',nform='gaussian'):
+    """ log likelihood function for emcee
+    """
+#    model = galaxy_profile(params,x,y,z,return_residuals=False)
+    if mode == 'sersic':
+        xc, yc, q, PA, Ie, re, n = params ### Unpack parameters
+        model = sf.sersic2D(x,y,xc,yc,Ie,re,n,q=q,PA=PA)
+#        model = signal.convolve2d(model,psf,mode='same') ### Convolve with psf
+    elif mode == 'gaussian':
+        q, PA, xc, yc, sigx, sigy, hght = params
+        model = hght*sf.gauss2d(x,y,sigx,sigy,xcenter=xc,ycenter=yc,q=q,PA=PA)
+    elif mode == 'eff':
+        nclumps = int(params.size/6)
+        model = 5*np.ones(z.shape)#np.zeros(z.shape) #TODO - remove
+        for i in range(nclumps):
+            paramsi = lmfit.Parameters()
+            paramsi = sf.array_to_Parameters(paramsi, params[6*i:6*i+6], arraynames=['xcb0', 'ycb0', 'Ieb0', 'reb0', 'PAb0', 'qb0'])
+            model += src.galaxy_profile(paramsi, x, y, z, inv_z, return_residuals=False,blob_type='eff')
+    else:
+        print("Invalid mode in lnlike")
+        exit(0)
+    if nform == 'gaussian':
+        log_likelihood = -0.5*(np.sum((z-model)**2*inv_z - np.log(inv_z))) ##Gaussian Noise
+    elif nform == 'poisson':
+        log_likelihood = np.sum(z*np.log(model) - model - sp.gammaln(z+1))#np.log(factorial(z)))
+    else:
+        print "Invalid kwarg nform: {}!  Must be:\n gaussian\n poisson".format(nform)
+    return log_likelihood
     
 def lnlike_pdf(params,x,form='gaussian'):
     """ log likelihood function for gaussian pdf
@@ -172,13 +195,14 @@ def lnprior(params,param_mins,param_maxes,mode='uniform',form='gaussian'):
         print("Invalid mode")
         exit(0)
         
-def lnprob(params,param_mins,param_maxes,x,form='gaussian'):
+def lnprob(params, param_mins, param_maxes, x, y, z, form='gaussian'):
     """ log probability for emcee
     """
-    lp = lnprior(params,param_mins,param_maxes,form=form)
+    lp = lnprior(params.ravel(),param_mins.ravel(),param_maxes.ravel(),form=form)
     if not np.isfinite(lp):
         return -np.inf
-    ll = lnlike_pdf(params,x,form=form)
+#    ll = lnlike_pdf(params,x,form=form)
+    ll = lnlike(params, x, y, z, 1/(abs(z)+5**2), nform=form)
     if not np.isfinite(ll):
         return -np.inf
     return lp + ll
